@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE configs
+.idea/
+*.iml
+
+# Pytest cache
+.pytest_cache/
+
+# Alembic cache
+app/migration/__pycache__/
+app/migration/versions/__pycache__/
+
+# Uploads (user files)
+uploads/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Docker
+*.pid
+
+# Ignore test cache
+**/__pycache__/
+
+# Ignore alembic.ini if it contains secrets (uncomment if needed)
+# alembic.ini 

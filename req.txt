@@ -1,0 +1,13 @@
+fastapi[all]
+requests
+alembic
+asyncpg
+sqlalchemy
+pydantic-settings
+python-jose
+bcrypt==4.0.1
+passlib[bcrypt]
+pytest
+pytest-asyncio
+httpx
+ffmpeg
