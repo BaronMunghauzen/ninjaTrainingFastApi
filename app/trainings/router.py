@@ -15,7 +15,15 @@ router = APIRouter(prefix='/trainings', tags=['Работа с трениров�
 
 @router.get("/", summary="Получить все тренировки")
 async def get_all_trainings(request_body: RBTraining = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
-    trainings = await TrainingDAO.find_all(**request_body.to_dict())
+    filters = request_body.to_dict()
+    # Исправление: если есть user_uuid, ищем user_id и подставляем его вместо user_uuid
+    user_uuid = filters.pop('user_uuid', None)
+    if user_uuid:
+        user = await UsersDAO.find_one_or_none(uuid=user_uuid)
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        filters['user_id'] = user.id
+    trainings = await TrainingDAO.find_all(**filters)
     result = []
     for t in trainings:
         data = {

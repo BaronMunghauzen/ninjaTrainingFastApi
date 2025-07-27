@@ -27,7 +27,7 @@ class Training(Base):
     caption: Mapped[str]
     description: Mapped[str] = mapped_column(Text, nullable=True)
     difficulty_level: Mapped[int] = mapped_column(default=1, server_default=text('1'))
-    duration: Mapped[int]  # Продолжительность в минутах
+    duration: Mapped[Optional[int]] = mapped_column(nullable=True)  # Продолжительность в минутах
     order: Mapped[int] = mapped_column(default=0, server_default=text('0'))
     muscle_group: Mapped[str]  # Группа мышц
     stage: Mapped[Optional[int]] = mapped_column(nullable=True)
