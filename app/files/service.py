@@ -86,8 +86,14 @@ class FileService:
         file_path = upload_dir / new_filename
         
         # Сохраняем файл
-        with open(file_path, "wb") as f:
-            f.write(content)
+        try:
+            with open(file_path, "wb") as f:
+                f.write(content)
+        except UnicodeEncodeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Ошибка кодировки при сохранении файла: {str(e)}"
+            )
         
         # Удаляем старый файл если есть
         if old_file_uuid:

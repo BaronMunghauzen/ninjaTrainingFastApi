@@ -86,11 +86,17 @@ async def get_file(file_uuid: UUID):
         print(f"Файл найден на диске, возвращаем...")
         
         # Возвращаем файл
-        return FileResponse(
-            path=file_record.file_path,
-            media_type=file_record.mime_type,
-            filename=file_record.filename
-        )
+        try:
+            return FileResponse(
+                path=file_record.file_path,
+                media_type=file_record.mime_type,
+                filename=file_record.filename
+            )
+        except UnicodeDecodeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Ошибка кодировки при чтении файла: {str(e)}"
+            )
     except HTTPException:
         raise
     except Exception as e:

@@ -7,6 +7,7 @@ services:
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: ninja_training
       PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5433:5432"
     volumes:
@@ -27,6 +28,7 @@ services:
                -c checkpoint_completion_target=0.7
                -c wal_buffers=16MB
                -c default_statistics_target=100
+               -c listen_addresses='*'
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U admin -d ninja_training" ]
       interval: 30s
