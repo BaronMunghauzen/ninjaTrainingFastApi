@@ -17,9 +17,19 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
-    op.add_column('user_program', sa.Column('schedule_type', sa.String(), nullable=True))
-    op.add_column('user_program', sa.Column('training_days', sa.String(), nullable=True))
-    op.add_column('user_program', sa.Column('start_date', sa.Date(), nullable=True))
+    # Проверяем существование колонок перед добавлением
+    connection = op.get_bind()
+    inspector = sa.inspect(connection)
+    existing_columns = [col['name'] for col in inspector.get_columns('user_program')]
+    
+    if 'schedule_type' not in existing_columns:
+        op.add_column('user_program', sa.Column('schedule_type', sa.String(), nullable=True))
+    
+    if 'training_days' not in existing_columns:
+        op.add_column('user_program', sa.Column('training_days', sa.String(), nullable=True))
+    
+    if 'start_date' not in existing_columns:
+        op.add_column('user_program', sa.Column('start_date', sa.Date(), nullable=True))
 
 def downgrade() -> None:
     op.drop_column('user_program', 'start_date')
