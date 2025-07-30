@@ -16,9 +16,10 @@ class File(Base):
     mime_type = Column(String, nullable=False)  # MIME тип файла
     entity_type = Column(String, nullable=False)  # Тип сущности (user, program, etc.)
     entity_id = Column(Integer, nullable=False)  # ID сущности
-    user_id = Column(Integer, ForeignKey("user.id"), nullable=True)  # Внешний ключ к пользователю
+    # Убираем user_id чтобы избежать конфликта с avatar_id в User модели
+    # user_id = Column(Integer, ForeignKey("user.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Связи с другими моделями (убираем связь user для избежания конфликтов)
+    # Убираем связь с User чтобы избежать конфликтов
     # user = relationship("User", back_populates="avatar", foreign_keys=[user_id]) 
