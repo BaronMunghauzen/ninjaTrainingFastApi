@@ -24,6 +24,7 @@ from app.user_training.models import UserTraining
 from app.user_exercises.models import UserExercise
 from app.files.models import File
 from app.exercise_reference.models import ExerciseReference
+from app.email_verification.models import EmailVerification
 
 
 
@@ -102,7 +103,12 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
+    """Run migrations in 'online' mode.
+
+    In this scenario we need to create an Engine
+    and associate a connection with the context.
+
+    """
 
     asyncio.run(run_async_migrations())
 

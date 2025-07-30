@@ -9,6 +9,9 @@ from .users.models import User
 from .user_program.models import UserProgram
 from .user_exercises.models import UserExercise
 from .user_training.models import UserTraining
+from .files.models import File
+from .exercise_reference.models import ExerciseReference
+from .email_verification.models import EmailVerification
 
 __all__ = [
     'Base',
@@ -20,5 +23,8 @@ __all__ = [
     'Exercises',
     'UserProgram',
     'UserTraining',
-    'UserExercise'
+    'UserExercise',
+    'File',
+    'ExerciseReference',
+    'EmailVerification'
 ]

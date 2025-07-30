@@ -1,6 +1,7 @@
+from datetime import datetime, date
 from typing import Optional, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 import re
 
 
@@ -32,9 +33,30 @@ class SUserUpdate(BaseModel):
 
     @field_validator("phone_number")
     @classmethod
-    def validate_phone_number(cls, value: str) -> str:
-        if value is None:
-            return value
-        if not re.match(r'^\+\d{5,15}$', value):
-            raise ValueError('Номер телефона должен начинаться с "+" и содержать от 5 до 15 цифр')
-        return value
+    def validate_phone_number(cls, v):
+        if v is not None:
+            if not re.match(r'^\+[1-9]\d{1,14}$', v):
+                raise ValueError("Номер телефона должен быть в международном формате, начинающийся с '+'")
+        return v
+
+
+class SUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    uuid: str = Field(..., description="Уникальный идентификатор")
+    email: str = Field(..., description="Email пользователя")
+    login: str = Field(..., description="Логин пользователя")
+    first_name: Optional[str] = Field(None, description="Имя пользователя")
+    last_name: Optional[str] = Field(None, description="Фамилия пользователя")
+    middle_name: Optional[str] = Field(None, description="Отчество пользователя")
+    phone_number: Optional[str] = Field(None, description="Номер телефона")
+    gender: Optional[str] = Field(None, description="Пол пользователя")
+    description: Optional[str] = Field(None, description="Описание пользователя")
+    subscription_status: str = Field(..., description="Статус подписки")
+    subscription_until: Optional[date] = Field(None, description="Дата окончания подписки")
+    theme: str = Field(..., description="Тема интерфейса")
+    is_user: bool = Field(..., description="Является ли пользователем")
+    is_admin: bool = Field(..., description="Является ли администратором")
+    # Новые поля для email verification
+    email_verified: bool = Field(..., description="Подтвержден ли email")
+    email_verification_sent_at: Optional[datetime] = Field(None, description="Время отправки подтверждения email")
+    avatar_uuid: Optional[str] = Field(None, description="UUID аватара")
