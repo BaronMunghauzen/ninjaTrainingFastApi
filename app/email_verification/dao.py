@@ -14,6 +14,21 @@ logger = logging.getLogger(__name__)
 
 class EmailVerificationDAO(BaseDAO):
     model = EmailVerification
+    
+    @classmethod
+    async def add(cls, **values):
+        """Добавить запись с дополнительным логированием"""
+        logger.info(f"EmailVerificationDAO.add вызван с параметрами: {values}")
+        logger.info(f"Тип user_id: {type(values.get('user_id'))}, значение: {values.get('user_id')}")
+        
+        # Убеждаемся, что user_id является int
+        if 'user_id' in values:
+            values['user_id'] = int(values['user_id'])
+            logger.info(f"user_id преобразован в int: {values['user_id']}")
+        
+        result = await super().add(**values)
+        logger.info(f"EmailVerificationDAO.add завершен, результат: {result}")
+        return result
 
     @classmethod
     async def find_valid_token(cls, token: str) -> Optional[EmailVerification]:
@@ -28,11 +43,13 @@ class EmailVerificationDAO(BaseDAO):
                     cls.model.expires_at > datetime.utcnow()
                 )
             )
+            logger.info(f"SQL запрос: {query}")
             result = await session.execute(query)
             verification = result.scalar_one_or_none()
             
             if verification:
                 logger.info(f"Найден действительный токен для пользователя ID: {verification.user_id}")
+                logger.info(f"Тип user_id в результате: {type(verification.user_id)}")
             else:
                 logger.warning("Токен не найден или недействителен")
             

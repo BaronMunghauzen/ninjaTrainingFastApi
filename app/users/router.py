@@ -94,7 +94,7 @@ async def register_user(user_data: SUserRegister) -> dict:
     }
 
 
-@router.post("/login")
+@router.post("/login/")
 async def auth_user(response: Response, user_data: SUserAuth):
     logger.info(f"Попытка входа пользователя: {user_data.user_identity}")
     
@@ -139,7 +139,7 @@ async def update_user(user_uuid: UUID, user: SUserUpdate, user_data: User = Depe
         updated_user = await UsersDAO.find_full_data(user_uuid)
         return {
             "message": "Пользователь успешно обновлен!",
-            "user": updated_user.to_dict()
+            "user": await updated_user.to_dict()
         }
     else:
         return {"message": "Ошибка при обновлении пользователя!"}
@@ -161,8 +161,17 @@ async def verify_email(token: str = Query(..., description="Токен подт�
     
     logger.info(f"Найден действительный токен для пользователя ID: {verification.user_id}")
     
-    # Подтверждаем email пользователя
-    await UsersDAO.update(verification.user_id, email_verified=True)
+    # Находим пользователя по ID и получаем его UUID
+    user = await UsersDAO.find_one_or_none_by_id(verification.user_id)
+    if not user:
+        logger.error(f"Пользователь с ID {verification.user_id} не найден")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь не найден"
+        )
+    
+    # Подтверждаем email пользователя по UUID
+    await UsersDAO.update(user.uuid, email_verified=True)
     await EmailVerificationDAO.mark_as_used(verification.id)
     
     logger.info(f"Email подтвержден для пользователя ID: {verification.user_id}")
@@ -209,7 +218,7 @@ async def resend_verification_email(email: str = Query(..., description="Email �
     )
     
     # Обновляем время отправки
-    await UsersDAO.update(user.id, email_verification_sent_at=datetime.utcnow())
+    await UsersDAO.update(user.uuid, email_verification_sent_at=datetime.utcnow())
     
     # Отправляем email
     try:
