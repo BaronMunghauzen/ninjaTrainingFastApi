@@ -13,6 +13,7 @@ from app.user_training.router import router as router_user_trainings
 from app.user_exercises.router import router as router_user_exercises
 from app.files.router import router as router_files
 from app.exercise_reference.router import router as exercise_reference_router
+from app.services.router import router as router_services
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -98,3 +99,4 @@ app.include_router(router_user_trainings)
 app.include_router(router_user_exercises)
 app.include_router(router_files)
 app.include_router(exercise_reference_router)
+app.include_router(router_services)

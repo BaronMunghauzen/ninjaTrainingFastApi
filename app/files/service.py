@@ -106,8 +106,7 @@ class FileService:
             "file_size": file_size,
             "mime_type": file.content_type or "image/jpeg",
             "entity_type": entity_type,
-            "entity_id": entity_id,
-            "user_id": entity_id if entity_type == "user" else None
+            "entity_id": entity_id
         }
         
         file_uuid = await FilesDAO.add(**file_data)
@@ -148,8 +147,7 @@ class FileService:
             "file_size": file_size,
             "mime_type": file.content_type or "video/mp4",
             "entity_type": entity_type,
-            "entity_id": entity_id,
-            "user_id": entity_id if entity_type == "user" else None
+            "entity_id": entity_id
         }
         file_uuid = await FilesDAO.add(**file_data)
         return await FilesDAO.find_full_data(file_uuid)

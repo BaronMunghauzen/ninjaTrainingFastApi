@@ -248,8 +248,13 @@ async def get_user_training_by_id(user_training_uuid: UUID, user_data = Depends(
 
 
 @router.post("/add/")
-async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends(get_current_admin_user)) -> dict:
+async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends(get_current_user_user)) -> dict:
     values = user_training.model_dump()
+    
+    # Проверяем права доступа - пользователь может добавлять тренировки только для себя
+    user_uuid = values.get('user_uuid')
+    if user_uuid and str(user_uuid) != str(user_data.uuid):
+        raise HTTPException(status_code=403, detail="Вы можете добавлять тренировки только для своего профиля")
     
     # Получаем user_program_id по user_program_uuid, если передан
     user_program_uuid = values.pop('user_program_uuid', None)
@@ -257,6 +262,9 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
         user_program = await UserProgramDAO.find_one_or_none(uuid=user_program_uuid)
         if not user_program:
             raise HTTPException(status_code=404, detail="Пользовательская программа не найдена")
+        # Проверяем, что программа принадлежит текущему пользователю
+        if user_program.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете добавлять тренировки только для своих программ")
         values['user_program_id'] = user_program.id
     # если не передан, не добавляем user_program_id
 
@@ -320,7 +328,15 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
 
 
 @router.put("/update/{user_training_uuid}")
-async def update_user_training(user_training_uuid: UUID, user_training: SUserTrainingUpdate, user_data = Depends(get_current_admin_user)) -> dict:
+async def update_user_training(user_training_uuid: UUID, user_training: SUserTrainingUpdate, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа - пользователь может обновлять только свои тренировки
+    existing_training = await UserTrainingDAO.find_full_data(user_training_uuid)
+    if not existing_training:
+        raise HTTPException(status_code=404, detail="Пользовательская тренировка не найдена")
+    
+    if existing_training.user_id != user_data.id:
+        raise HTTPException(status_code=403, detail="Вы можете обновлять только свои тренировки")
+    
     update_data = user_training.model_dump(exclude_unset=True)
     
     # Преобразуем UUID в ID, если они есть
@@ -371,7 +387,15 @@ async def update_user_training(user_training_uuid: UUID, user_training: SUserTra
 
 
 @router.delete("/delete/{user_training_uuid}")
-async def delete_user_training_by_id(user_training_uuid: UUID, user_data = Depends(get_current_admin_user)) -> dict:
+async def delete_user_training_by_id(user_training_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа - пользователь может удалять только свои тренировки
+    existing_training = await UserTrainingDAO.find_full_data(user_training_uuid)
+    if not existing_training:
+        raise HTTPException(status_code=404, detail="Пользовательская тренировка не найдена")
+    
+    if existing_training.user_id != user_data.id:
+        raise HTTPException(status_code=403, detail="Вы можете удалять только свои тренировки")
+    
     check = await UserTrainingDAO.delete_by_id(user_training_uuid)
     if check:
         return {"message": f"Пользовательская тренировка с ID {user_training_uuid} удалена!"}

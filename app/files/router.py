@@ -12,50 +12,7 @@ import os
 router = APIRouter(prefix='/files', tags=['Files'])
 
 
-@router.post("/upload/avatar/{user_uuid}", response_model=FileUploadResponse)
-async def upload_avatar(
-    user_uuid: UUID,
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user_user)
-):
-    """Загрузка аватара пользователя"""
-    # Проверяем, что пользователь загружает свой аватар
-    if str(current_user.uuid) != str(user_uuid):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Вы можете загружать только свой аватар"
-        )
-    
-    # Проверяем, что пользователь имеет права
-    if not current_user.is_user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав"
-        )
-    
-    # Ищем существующий аватар
-    existing_avatar = await FilesDAO.find_avatar_by_user_id(current_user.id)
-    old_file_uuid = str(existing_avatar.uuid) if existing_avatar else None
-    
-    # Сохраняем новый файл
-    saved_file = await FileService.save_file(
-        file=file,
-        entity_type="user",
-        entity_id=current_user.id,
-        old_file_uuid=old_file_uuid
-    )
-    
-    # Обновляем поле avatar_id у пользователя
-    await UsersDAO.update(current_user.uuid, avatar_id=saved_file.id)
-    
-    # Удаляем старые аватары пользователя (оставляем только новый)
-    if existing_avatar:
-        await FilesDAO.delete_old_avatars_for_user(current_user.id, keep_latest=True)
-    
-    return FileUploadResponse(
-        message="Аватар успешно загружен",
-        file=FileResponseSchema.model_validate(saved_file)
-    )
+
 
 
 @router.get("/file/{file_uuid}")

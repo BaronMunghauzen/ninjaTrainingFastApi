@@ -73,4 +73,24 @@ class ExerciseReferenceDAO(BaseDAO):
             )
             result = await session.execute(query)
             objects = result.scalars().all()
+            return objects
+
+    @classmethod
+    async def search_by_caption(cls, *, search_query: str, user_id: int):
+        """Поиск по caption с учетом exercise_type и user_id"""
+        from sqlalchemy import or_
+        
+        async with async_session_maker() as session:
+            query = select(cls.model).options(
+                joinedload(cls.model.image),
+                joinedload(cls.model.user)
+            ).filter(
+                func.lower(cls.model.caption).like(f"%{search_query.lower()}%"),
+                or_(
+                    cls.model.exercise_type == "system",
+                    (cls.model.exercise_type == "user") & (cls.model.user_id == user_id)
+                )
+            )
+            result = await session.execute(query)
+            objects = result.scalars().all()
             return objects 
