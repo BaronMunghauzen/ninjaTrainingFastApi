@@ -3,7 +3,7 @@ import secrets
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, status, Response, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Response, Depends, Query, UploadFile, File
 from app.users.auth import get_password_hash, authenticate_user, create_access_token, create_refresh_token
 from app.users.dao import UsersDAO
 from app.users.dependencies import get_current_user, get_current_admin_user, get_current_user_user
@@ -11,6 +11,9 @@ from app.users.models import User
 from app.users.schemas import SUserRegister, SUserAuth, SUserUpdate
 from app.email_verification.dao import EmailVerificationDAO
 from app.email_service import email_service
+from app.files.service import FileService
+from app.files.dao import FilesDAO
+from app.files.schemas import FileUploadResponse, FileResponse as FileResponseSchema
 
 # Настраиваем логирование
 logger = logging.getLogger(__name__)
@@ -134,13 +137,65 @@ async def get_all_users(user_data: User = Depends(get_current_admin_user)):
 @router.put("/update/{user_uuid}")
 async def update_user(user_uuid: UUID, user: SUserUpdate, user_data: User = Depends(get_current_user_user)) -> dict:
     update_data = user.model_dump(exclude_unset=True)
+    
+    # Проверяем, действительно ли изменился email
+    email_changed = False
+    if 'email' in update_data:
+        # Получаем текущего пользователя из БД для сравнения
+        current_user_from_db = await UsersDAO.find_full_data(user_uuid)
+        if current_user_from_db and current_user_from_db.email != update_data['email']:
+            email_changed = True
+            update_data['email_verified'] = False
+            update_data['email_verification_sent_at'] = datetime.utcnow()
+            logger.info(f"Email действительно изменился для пользователя {user_uuid}: {current_user_from_db.email} -> {update_data['email']}")
+        else:
+            logger.info(f"Email не изменился для пользователя {user_uuid}, пропускаем email verification")
+    
     check = await UsersDAO.update(user_uuid, **update_data)
     if check:
         updated_user = await UsersDAO.find_full_data(user_uuid)
-        return {
-            "message": "Пользователь успешно обновлен!",
-            "user": await updated_user.to_dict()
-        }
+        
+        # Если email действительно изменился, отправляем новое подтверждение
+        if email_changed:
+            try:
+                # Удаляем старый токен, если есть
+                old_verification = await EmailVerificationDAO.find_by_user_id(updated_user.id)
+                if old_verification:
+                    logger.info("Удаление старого токена...")
+                    await EmailVerificationDAO.mark_as_used(old_verification.id)
+                
+                # Генерируем новый токен
+                verification_token = generate_verification_token()
+                logger.info("Создание нового токена для обновленного email...")
+                
+                # Создаем новый токен
+                await EmailVerificationDAO.add(
+                    user_id=updated_user.id,
+                    token=verification_token,
+                    expires_at=datetime.utcnow() + timedelta(hours=24)
+                )
+                
+                # Отправляем email подтверждения на новый email
+                logger.info(f"Отправка email подтверждения на новый email: {updated_user.email}")
+                await email_service.send_verification_email(updated_user.email, verification_token)
+                logger.info("Email подтверждения отправлен успешно")
+                
+                return {
+                    "message": "Пользователь успешно обновлен! Проверьте новый email для подтверждения.",
+                    "user": await updated_user.to_dict()
+                }
+            except Exception as e:
+                logger.error(f"Ошибка отправки email подтверждения: {e}")
+                # Возвращаем успешное обновление, но с предупреждением
+                return {
+                    "message": "Пользователь успешно обновлен! Ошибка отправки email подтверждения.",
+                    "user": await updated_user.to_dict()
+                }
+        else:
+            return {
+                "message": "Пользователь успешно обновлен!",
+                "user": await updated_user.to_dict()
+            }
     else:
         return {"message": "Ошибка при обновлении пользователя!"}
 
@@ -232,3 +287,96 @@ async def resend_verification_email(email: str = Query(..., description="Email �
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка отправки email: {str(e)}"
         )
+
+
+# Эндпоинты для работы с аватаром
+@router.post("/upload/avatar/{user_uuid}", response_model=FileUploadResponse)
+async def upload_avatar(
+    user_uuid: UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user_user)
+):
+    """Загрузка аватара пользователя"""
+    # Проверяем, что пользователь загружает свой аватар
+    if str(current_user.uuid) != str(user_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Вы можете загружать только свой аватар"
+        )
+    
+    # Проверяем, что пользователь имеет права
+    if not current_user.is_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+    
+    # Ищем существующий аватар
+    existing_avatar = await FilesDAO.find_avatar_by_user_id(current_user.id)
+    old_file_uuid = str(existing_avatar.uuid) if existing_avatar else None
+    
+    # Сохраняем новый файл
+    saved_file = await FileService.save_file(
+        file=file,
+        entity_type="user",
+        entity_id=current_user.id,
+        old_file_uuid=old_file_uuid
+    )
+    
+    # Обновляем поле avatar_id у пользователя
+    await UsersDAO.update(current_user.uuid, avatar_id=saved_file.id)
+    
+    # Удаляем старые аватары пользователя (оставляем только новый)
+    if existing_avatar:
+        await FilesDAO.delete_old_avatars_for_user(current_user.id, keep_latest=True)
+    
+    return FileUploadResponse(
+        message="Аватар успешно загружен",
+        file=FileResponseSchema.model_validate(saved_file)
+    )
+
+
+@router.delete("/avatar/{user_uuid}")
+async def delete_avatar(
+    user_uuid: UUID,
+    current_user: User = Depends(get_current_user_user)
+):
+    """Удаление аватара пользователя"""
+    # Проверяем, что пользователь удаляет свой аватар
+    if str(current_user.uuid) != str(user_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Вы можете удалять только свой аватар"
+        )
+    
+    # Проверяем, что пользователь имеет права
+    if not current_user.is_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+    
+    # Ищем текущий аватар пользователя
+    existing_avatar = await FilesDAO.find_avatar_by_user_id(current_user.id)
+    
+    if not existing_avatar:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Аватар не найден"
+        )
+    
+    # Удаляем файл с сервера и из БД
+    success = await FileService.delete_file_by_uuid(str(existing_avatar.uuid))
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка при удалении файла"
+        )
+    
+    # Обновляем поле avatar_id у пользователя (устанавливаем в None)
+    await UsersDAO.update(current_user.uuid, avatar_id=None)
+    
+    return {"message": "Аватар успешно удален"}
+
+

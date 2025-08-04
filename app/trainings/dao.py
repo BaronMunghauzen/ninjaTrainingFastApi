@@ -88,3 +88,24 @@ class TrainingDAO(BaseDAO):
             result = result.unique()
             objects = result.scalars().all()
             return objects
+
+    @classmethod
+    async def search_by_caption(cls, *, search_query: str, user_id: int):
+        """Поиск по caption с учетом training_type и user_id"""
+        from sqlalchemy import or_, func
+        
+        async with async_session_maker() as session:
+            query = select(cls.model).options(
+                joinedload(cls.model.image),
+                joinedload(cls.model.program).joinedload(Program.image)
+            ).filter(
+                func.lower(cls.model.caption).like(f"%{search_query.lower()}%"),
+                or_(
+                    cls.model.training_type == "system_training",
+                    (cls.model.training_type == "user") & (cls.model.user_id == user_id)
+                )
+            )
+            result = await session.execute(query)
+            result = result.unique()
+            objects = result.scalars().all()
+            return objects

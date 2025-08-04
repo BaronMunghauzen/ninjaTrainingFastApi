@@ -88,3 +88,29 @@ class ProgramDAO(BaseDAO):
             result = result.unique()
             objects = result.scalars().all()
             return objects
+
+    @classmethod
+    async def search_by_caption(cls, *, search_query: str, user_id: int):
+        """Поиск по caption с учетом program_type и user_id"""
+        from sqlalchemy import or_, func
+        
+        async with async_session_maker() as session:
+            query = select(cls.model).options(
+                joinedload(cls.model.image),
+                joinedload(cls.model.user_trainings),
+                joinedload(cls.model.user_exercises),
+                joinedload(cls.model.trainings),
+                joinedload(cls.model.user_programs),
+                joinedload(cls.model.category),
+                joinedload(cls.model.user)
+            ).filter(
+                func.lower(cls.model.caption).like(f"%{search_query.lower()}%"),
+                or_(
+                    cls.model.program_type == "system",
+                    (cls.model.program_type == "user") & (cls.model.user_id == user_id)
+                )
+            )
+            result = await session.execute(query)
+            result = result.unique()
+            objects = result.scalars().all()
+            return objects
