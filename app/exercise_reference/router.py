@@ -25,6 +25,33 @@ async def search_exercise_reference_by_caption(
     results = await ExerciseReferenceDAO.find_by_caption(caption=caption, **filters)
     return [e.to_dict() for e in results]
 
+@router.get('/available/{user_uuid}', summary='Получить все доступные упражнения для пользователя')
+async def get_available_exercises(
+    user_uuid: UUID,
+    user_data = Depends(get_current_user_user)
+) -> list[dict]:
+    """
+    Получить все доступные упражнения для пользователя:
+    - Все системные упражнения (exercise_type = "system")
+    - Все пользовательские упражнения, созданные этим пользователем (exercise_type = "user" и user_id = id пользователя)
+    """
+    # Проверяем права доступа - пользователь может получить упражнения только для себя
+    if str(user_uuid) != str(user_data.uuid):
+        raise HTTPException(status_code=403, detail="Вы можете получить упражнения только для своего профиля")
+    
+    # Получаем ID пользователя
+    user = await UsersDAO.find_one_or_none(uuid=user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Получаем все доступные упражнения
+    exercises = await ExerciseReferenceDAO.search_by_caption(
+        search_query="",  # Пустая строка для получения всех упражнений
+        user_id=user.id
+    )
+    
+    return [e.to_dict() for e in exercises]
+
 @router.get('/{exercise_reference_uuid}', summary='Получить упражнение справочника по uuid')
 async def get_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
     rez = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)

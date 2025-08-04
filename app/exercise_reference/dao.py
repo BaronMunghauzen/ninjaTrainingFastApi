@@ -85,12 +85,16 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.image),
                 joinedload(cls.model.user)
             ).filter(
-                func.lower(cls.model.caption).like(f"%{search_query.lower()}%"),
                 or_(
                     cls.model.exercise_type == "system",
                     (cls.model.exercise_type == "user") & (cls.model.user_id == user_id)
                 )
             )
+            
+            # Добавляем фильтр по поисковому запросу только если он не пустой
+            if search_query.strip():
+                query = query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
+            
             result = await session.execute(query)
             objects = result.scalars().all()
             return objects 
