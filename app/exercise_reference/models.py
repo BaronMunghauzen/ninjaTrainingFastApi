@@ -14,8 +14,10 @@ class ExerciseReference(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     muscle_group: Mapped[str]
     image_id: Mapped[Optional[int]] = mapped_column(ForeignKey("files.id"), nullable=True)
+    video_id: Mapped[Optional[int]] = mapped_column(ForeignKey("files.id"), nullable=True)
 
-    image: Mapped[Optional["File"]] = relationship("File")
+    image: Mapped[Optional["File"]] = relationship("File", foreign_keys=[image_id])
+    video: Mapped[Optional["File"]] = relationship("File", foreign_keys=[video_id])
     user: Mapped[Optional["User"]] = relationship("User")
 
     def __repr__(self):
@@ -30,6 +32,7 @@ class ExerciseReference(Base):
             "description": self.description,
             "muscle_group": self.muscle_group,
             "image_uuid": str(self.image.uuid) if self.image else None,
+            "video_uuid": str(self.video.uuid) if self.video else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         } 

@@ -24,11 +24,27 @@ app = FastAPI()
 @app.middleware("http")
 async def log_request_data(request: Request, call_next):
     body = await request.body()
-    logging.info(
-        f"Request: {request.method} {request.url}\n"
-        f"Headers: {dict(request.headers)}\n"
-        f"Body: {body.decode(errors='replace')}"
-    )
+    
+    # Проверяем, является ли это файловым запросом
+    is_file_upload = any(path in str(request.url) for path in [
+        '/upload-image', '/upload-video', '/upload-avatar'
+    ])
+    
+    if is_file_upload:
+        # Для файловых запросов логируем только метаданные
+        logging.info(
+            f"Request: {request.method} {request.url}\n"
+            f"Headers: {dict(request.headers)}\n"
+            f"Body: [FILE UPLOAD - content not logged]"
+        )
+    else:
+        # Для остальных запросов логируем полное тело
+        logging.info(
+            f"Request: {request.method} {request.url}\n"
+            f"Headers: {dict(request.headers)}\n"
+            f"Body: {body.decode(errors='replace')}"
+        )
+    
     # Восстанавливаем body для downstream
     async def receive():
         return {"type": "http.request", "body": body}
