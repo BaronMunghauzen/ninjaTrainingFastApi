@@ -5,6 +5,7 @@ from app.programs.models import Program
 from app.trainings.models import Training
 from app.exercise_groups.models import ExerciseGroup
 from app.exercises.models import Exercise
+from app.exercise_reference.models import ExerciseReference
 
 
 class FilesDAO(BaseDAO):
@@ -61,9 +62,14 @@ class FilesDAO(BaseDAO):
     
     @classmethod
     async def delete_file_with_cleanup(cls, file_uuid: str):
-        """Удаление файла с очисткой ссылок в одной транзакции"""
+        """Удаляет файл и очищает все ссылки на него в других таблицах"""
         from app.database import async_session_maker
         from app.users.models import User
+        from app.programs.models import Program
+        from app.trainings.models import Training
+        from app.exercise_groups.models import ExerciseGroup
+        from app.exercises.models import Exercise
+        from app.exercise_reference.models import ExerciseReference
         from sqlalchemy import update
         
         async with async_session_maker() as session:
@@ -119,6 +125,17 @@ class FilesDAO(BaseDAO):
                         update(Exercise)
                         .where(Exercise.video_preview_id == file_id)
                         .values(video_preview_id=None)
+                    )
+                    # Очищаем ссылки на файл в таблице справочника упражнений (image_id, video_id)
+                    await session.execute(
+                        update(ExerciseReference)
+                        .where(ExerciseReference.image_id == file_id)
+                        .values(image_id=None)
+                    )
+                    await session.execute(
+                        update(ExerciseReference)
+                        .where(ExerciseReference.video_id == file_id)
+                        .values(video_id=None)
                     )
 
                 # Удаляем файл

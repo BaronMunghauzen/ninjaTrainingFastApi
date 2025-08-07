@@ -12,6 +12,7 @@ class SExerciseReference(BaseModel):
     description: Optional[str] = Field(None, description="Описание упражнения")
     muscle_group: str = Field(..., description="Группа мышц")
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
+    video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
     created_at: Optional[datetime] = Field(None, description="Дата создания")
     updated_at: Optional[datetime] = Field(None, description="Дата обновления")
 
@@ -22,6 +23,7 @@ class SExerciseReferenceAdd(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     muscle_group: str = Field(..., min_length=1, max_length=50, description="Группа мышц")
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
+    video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
 
 class SExerciseReferenceUpdate(BaseModel):
     exercise_type: Optional[str] = Field(None, description="Тип упражнения")
@@ -29,4 +31,5 @@ class SExerciseReferenceUpdate(BaseModel):
     caption: Optional[str] = Field(None, min_length=1, max_length=100, description="Название упражнения")
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     muscle_group: Optional[str] = Field(None, min_length=1, max_length=50, description="Группа мышц")
-    image_uuid: Optional[str] = Field(None, description="UUID изображения (files)") 
+    image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
+    video_uuid: Optional[str] = Field(None, description="UUID видео (files)") 

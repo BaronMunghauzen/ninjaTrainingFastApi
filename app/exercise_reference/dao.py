@@ -13,6 +13,7 @@ class ExerciseReferenceDAO(BaseDAO):
     model = ExerciseReference
     uuid_fk_map = {
         'image_id': (FilesDAO, 'image_uuid'),
+        'video_id': (FilesDAO, 'video_uuid'),
         'user_id': (UsersDAO, 'user_uuid')
     }
 
@@ -21,6 +22,7 @@ class ExerciseReferenceDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
+                joinedload(cls.model.video),
                 joinedload(cls.model.user)
             ).filter_by(uuid=object_uuid)
             result = await session.execute(query)
@@ -46,6 +48,7 @@ class ExerciseReferenceDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
+                joinedload(cls.model.video),
                 joinedload(cls.model.user)
             ).filter_by(**filters)
             result = await session.execute(query)
@@ -66,6 +69,7 @@ class ExerciseReferenceDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
+                joinedload(cls.model.video),
                 joinedload(cls.model.user)
             ).filter(
                 func.lower(cls.model.caption).like(f"%{caption.lower()}%"),
@@ -83,6 +87,7 @@ class ExerciseReferenceDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
+                joinedload(cls.model.video),
                 joinedload(cls.model.user)
             ).filter(
                 or_(

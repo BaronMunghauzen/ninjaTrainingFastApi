@@ -69,6 +69,13 @@ async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = De
             raise HTTPException(status_code=404, detail="Изображение не найдено")
         values['image_id'] = image.id
     values.pop('image_uuid', None)
+    # Обработка video_uuid
+    if values.get('video_uuid'):
+        video = await FilesDAO.find_one_or_none(uuid=values['video_uuid'])
+        if not video:
+            raise HTTPException(status_code=404, detail="Видео не найдено")
+        values['video_id'] = video.id
+    values.pop('video_uuid', None)
     # Обработка user_uuid
     if values.get('user_uuid'):
         user = await UsersDAO.find_one_or_none(uuid=values['user_uuid'])
@@ -93,6 +100,16 @@ async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SEx
             update_data['image_id'] = image.id
         else:
             update_data['image_id'] = None
+    # Обработка video_uuid
+    if 'video_uuid' in update_data:
+        video_uuid = update_data.pop('video_uuid')
+        if video_uuid:
+            video = await FilesDAO.find_one_or_none(uuid=video_uuid)
+            if not video:
+                raise HTTPException(status_code=404, detail="Видео не найдено")
+            update_data['video_id'] = video.id
+        else:
+            update_data['video_id'] = None
     # Обработка user_uuid
     if 'user_uuid' in update_data:
         user_uuid = update_data.pop('user_uuid')
@@ -124,15 +141,106 @@ async def upload_exercise_reference_image(
     file: UploadFile = File(...),
     user_data = Depends(get_current_admin_user)
 ):
+    print(f"Начинаем загрузку изображения для exercise_reference: {exercise_reference_uuid}")
+    
     exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
     if not exercise_reference:
         raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    print(f"Найден exercise_reference: {exercise_reference.id}")
     old_file_uuid = getattr(exercise_reference.image, 'uuid', None)
+    print(f"Старый файл UUID: {old_file_uuid}")
+    
+    print("Вызываем FileService.save_file...")
     saved_file = await FileService.save_file(
         file=file,
         entity_type="exercise_reference",
         entity_id=exercise_reference.id,
         old_file_uuid=str(old_file_uuid) if old_file_uuid else None
     )
+    print(f"Файл сохранен, UUID: {saved_file.uuid}")
+    
+    print("Обновляем exercise_reference...")
     await ExerciseReferenceDAO.update(exercise_reference_uuid, image_id=saved_file.id)
-    return {"message": "Изображение успешно загружено", "image_uuid": saved_file.uuid} 
+    print("Exercise_reference обновлен")
+    
+    return {"message": "Изображение успешно загружено", "image_uuid": saved_file.uuid}
+
+@router.delete('/{exercise_reference_uuid}/delete-image', summary='Удалить изображение справочника упражнения')
+async def delete_exercise_reference_image(
+    exercise_reference_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+):
+    exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+    if not exercise_reference:
+        raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    if not exercise_reference.image:
+        raise HTTPException(status_code=404, detail="Изображение не найдено")
+    
+    image_uuid = exercise_reference.image.uuid
+    # Сначала обновляем ссылку в exercise_reference
+    await ExerciseReferenceDAO.update(exercise_reference_uuid, image_id=None)
+    # Потом удаляем файл
+    try:
+        await FileService.delete_file_by_uuid(str(image_uuid))
+    except Exception as e:
+        # Если удаление файла не удалось, возвращаем ошибку
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+    
+    return {"message": "Изображение успешно удалено"}
+
+@router.post('/{exercise_reference_uuid}/upload-video', summary='Загрузить видео для справочника упражнения')
+async def upload_exercise_reference_video(
+    exercise_reference_uuid: UUID,
+    file: UploadFile = File(...),
+    user_data = Depends(get_current_admin_user)
+):
+    print(f"Начинаем загрузку видео для exercise_reference: {exercise_reference_uuid}")
+    
+    exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+    if not exercise_reference:
+        raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    print(f"Найден exercise_reference: {exercise_reference.id}")
+    old_file_uuid = getattr(exercise_reference.video, 'uuid', None)
+    print(f"Старый файл UUID: {old_file_uuid}")
+    
+    print("Вызываем FileService.save_video_file...")
+    saved_file = await FileService.save_video_file(
+        file=file,
+        entity_type="exercise_reference",
+        entity_id=exercise_reference.id,
+        old_file_uuid=str(old_file_uuid) if old_file_uuid else None
+    )
+    print(f"Видео сохранено, UUID: {saved_file.uuid}")
+    
+    print("Обновляем exercise_reference...")
+    await ExerciseReferenceDAO.update(exercise_reference_uuid, video_id=saved_file.id)
+    print("Exercise_reference обновлен")
+    
+    return {"message": "Видео успешно загружено", "video_uuid": saved_file.uuid}
+
+@router.delete('/{exercise_reference_uuid}/delete-video', summary='Удалить видео справочника упражнения')
+async def delete_exercise_reference_video(
+    exercise_reference_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+):
+    exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+    if not exercise_reference:
+        raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    if not exercise_reference.video:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+    
+    video_uuid = exercise_reference.video.uuid
+    # Сначала обновляем ссылку в exercise_reference
+    await ExerciseReferenceDAO.update(exercise_reference_uuid, video_id=None)
+    # Потом удаляем файл
+    try:
+        await FileService.delete_file_by_uuid(str(video_uuid))
+    except Exception as e:
+        # Если удаление файла не удалось, возвращаем ошибку
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+    
+    return {"message": "Видео успешно удалено"} 
