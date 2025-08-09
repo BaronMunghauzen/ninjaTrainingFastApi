@@ -35,7 +35,7 @@ class UserTraining(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     skipped_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     week: Mapped[Optional[int]] = mapped_column(nullable=True)  # Номер недели (1-4)
-    weekday: Mapped[Optional[int]] = mapped_column(nullable=True)  # День недели (1-7)
+    weekday: Mapped[Optional[int]] = mapped_column(nullable=True)  # День программы (1-7)
     is_rest_day: Mapped[Optional[bool]] = mapped_column(nullable=True)  # Является ли днем отдыха
 
     # Связи

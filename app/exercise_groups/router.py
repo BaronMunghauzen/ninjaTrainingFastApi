@@ -160,7 +160,30 @@ async def upload_exercise_group_image(
         old_file_uuid=str(old_file_uuid) if old_file_uuid else None
     )
     await ExerciseGroupDAO.update(exercise_group_uuid, image_id=saved_file.id)
-    return {"message": "Изображение успешно загружено", "image_uuid": saved_file.uuid} 
+    return {"message": "Изображение успешно загружено", "image_uuid": saved_file.uuid}
+
+
+@router.delete("/{exercise_group_uuid}/delete-image", summary="Удалить изображение группы упражнений")
+async def delete_exercise_group_image(
+    exercise_group_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+):
+    exercise_group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
+    if not exercise_group:
+        raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    if not exercise_group.image:
+        raise HTTPException(status_code=404, detail="Изображение не найдено")
+    
+    image_uuid = exercise_group.image.uuid
+    # Удаляем файл (это автоматически очистит image_id в exercise_groups и запись в files)
+    try:
+        await FileService.delete_file_by_uuid(str(image_uuid))
+    except Exception as e:
+        # Если удаление файла не удалось, возвращаем ошибку
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+    
+    return {"message": "Изображение успешно удалено"} 
 
 
 @router.post("/{exercise_group_uuid}/add-exercise", summary="Добавить упражнение в группу упражнений")

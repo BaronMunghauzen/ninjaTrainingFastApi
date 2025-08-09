@@ -178,3 +178,26 @@ async def upload_program_image(
     )
     await ProgramDAO.update(program_uuid, image_id=saved_file.id)
     return {"message": "Изображение успешно загружено", "image_uuid": saved_file.uuid}
+
+
+@router.delete("/{program_uuid}/delete-image", summary="Удалить изображение программы")
+async def delete_program_image(
+    program_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+):
+    program = await ProgramDAO.find_full_data(program_uuid)
+    if not program:
+        raise HTTPException(status_code=404, detail="Программа не найдена")
+    
+    if not program.image:
+        raise HTTPException(status_code=404, detail="Изображение не найдено")
+    
+    image_uuid = program.image.uuid
+    # Удаляем файл (это автоматически очистит image_id в programs и запись в files)
+    try:
+        await FileService.delete_file_by_uuid(str(image_uuid))
+    except Exception as e:
+        # Если удаление файла не удалось, возвращаем ошибку
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+    
+    return {"message": "Изображение успешно удалено"}
