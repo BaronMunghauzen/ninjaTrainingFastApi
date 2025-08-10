@@ -100,24 +100,28 @@ async def add_user_program(user_program: SUserProgramAdd, user_data = Depends(ge
     
     # Создаем user_trainings на основе расписания программы
     try:
-        # Получаем дни тренировок из программы
+        # Получаем дни тренировок из программы (теперь это дни программы, а не дни недели)
         training_days = ScheduleGenerator.parse_training_days(program.training_days)
         from datetime import date, timedelta
         today = date.today()
-        # Начинаем с понедельника текущей недели
-        start_date = today - timedelta(days=today.weekday())
+        # Начинаем с текущего дня
+        start_date = today
         # Получаем тренировки программы только с stage=1
         trainings = await TrainingDAO.find_all(program_id=program.id, stage=1)
         if trainings:
-            # Генерируем даты тренировок на ближайшие 4 недели
-            total_trainings = 4 * 7  # 4 недели по 7 дней
-            all_dates = [start_date + timedelta(days=offset) for offset in range(total_trainings)]
+            # Генерируем даты тренировок на ближайшие 28 дней
+            total_days = 28
             created_count = 0
             trainings_count = 0
-            for i, current_date in enumerate(all_dates):
-                week = (i // 7) + 1
-                weekday = current_date.isoweekday()
-                if weekday in training_days:
+            for day_offset in range(total_days):
+                current_date = start_date + timedelta(days=day_offset)
+                # Вычисляем день программы (1-7, циклически)
+                program_day = ((day_offset % 7) + 1)
+                week = (day_offset // 7) + 1
+                # weekday теперь содержит день программы, а не день недели
+                weekday = program_day
+                
+                if program_day in training_days:
                     training = trainings[trainings_count % len(trainings)]
                     # Статус: 'active' если дата совпадает с today, иначе 'blocked_yet'
                     status = 'active' if current_date == today else 'blocked_yet'
@@ -134,7 +138,7 @@ async def add_user_program(user_program: SUserProgramAdd, user_data = Depends(ge
                     }
                     trainings_count += 1
                 else:
-                    # Статус: 'active' если дата совпадает с today (даже для выходных), иначе 'blocked_yet'
+                    # Статус: 'active' если дата совпадает с today (даже для дней отдыха), иначе 'blocked_yet'
                     status = 'active' if current_date == today else 'blocked_yet'
                     user_training_data = {
                         'user_program_id': user_program_obj.id,

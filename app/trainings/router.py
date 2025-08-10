@@ -180,3 +180,26 @@ async def upload_training_image(
     )
     await TrainingDAO.update(training_uuid, image_id=saved_file.id)
     return {"message": "Изображение успешно загружено", "image_uuid": saved_file.uuid}
+
+
+@router.delete("/{training_uuid}/delete-image", summary="Удалить изображение тренировки")
+async def delete_training_image(
+    training_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+):
+    training = await TrainingDAO.find_full_data(training_uuid)
+    if not training:
+        raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    if not training.image:
+        raise HTTPException(status_code=404, detail="Изображение не найдено")
+    
+    image_uuid = training.image.uuid
+    # Удаляем файл (это автоматически очистит image_id в trainings и запись в files)
+    try:
+        await FileService.delete_file_by_uuid(str(image_uuid))
+    except Exception as e:
+        # Если удаление файла не удалось, возвращаем ошибку
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+    
+    return {"message": "Изображение успешно удалено"}

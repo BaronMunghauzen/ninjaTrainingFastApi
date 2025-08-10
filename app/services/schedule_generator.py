@@ -112,16 +112,18 @@ class ScheduleGenerator:
             }
         from datetime import date, timedelta, datetime
         today = date.today()
-        # Найти понедельник текущей недели
-        start_date = today - timedelta(days=today.weekday())  # weekday(): 0=Пн, 6=Вс
+        # Начинаем с текущего дня
+        start_date = today
         days_ahead = 28
         created_count = 0
         trainings_count = 0
         for i in range(days_ahead):
             current_date = start_date + timedelta(days=i)
-            weekday = current_date.isoweekday()  # 1=Пн, 7=Вс
+            # Вычисляем день программы (1-7, циклически)
+            program_day = ((i % 7) + 1)
+            weekday = program_day  # weekday теперь содержит день программы
             week = (i // 7) + 1
-            if weekday in training_days:
+            if program_day in training_days:
                 training = next_stage_trainings[trainings_count % len(next_stage_trainings)]
                 # Статус: 'active' если дата совпадает с today, иначе 'blocked_yet'
                 status = 'active' if current_date == today else 'blocked_yet'

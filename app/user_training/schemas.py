@@ -16,7 +16,7 @@ class SUserTraining(BaseModel):
     training_date: date = Field(..., description="Дата тренировки")
     status: TrainingStatus = Field(..., description="Статус тренировки")
     week: Optional[int] = Field(None, description="Номер недели (1-4)")
-    weekday: Optional[int] = Field(None, description="День недели (1-7)")
+    weekday: Optional[int] = Field(None, description="День программы (1-7)")
     is_rest_day: Optional[bool] = Field(None, description="Является ли днем отдыха")
 
 
@@ -28,7 +28,7 @@ class SUserTrainingAdd(BaseModel):
     training_date: date = Field(..., description="Дата тренировки")
     status: TrainingStatus = Field(TrainingStatus.ACTIVE, description="Статус тренировки")
     week: Optional[int] = Field(None, description="Номер недели (1-4)")
-    weekday: Optional[int] = Field(None, description="День недели (1-7)")
+    weekday: Optional[int] = Field(None, description="День программы (1-7)")
     is_rest_day: Optional[bool] = Field(None, description="Является ли днем отдыха")
 
 
@@ -40,5 +40,5 @@ class SUserTrainingUpdate(BaseModel):
     training_date: Optional[date] = Field(None, description="Дата тренировки")
     status: Optional[TrainingStatus] = Field(None, description="Статус тренировки")
     week: Optional[int] = Field(None, description="Номер недели (1-4)")
-    weekday: Optional[int] = Field(None, description="День недели (1-7)")
+    weekday: Optional[int] = Field(None, description="День программы (1-7)")
     is_rest_day: Optional[bool] = Field(None, description="Является ли днем отдыха")
