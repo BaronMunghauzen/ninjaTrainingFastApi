@@ -39,11 +39,9 @@ async def get_all_trainings(request_body: RBTraining = Depends(), user_data = De
             "image_uuid": str(t.image.uuid) if hasattr(t, 'image') and t.image else None,
             "actual": t.actual,
         }
-        # Подгружаем полную программу с image только по program_id
-        program = await ProgramDAO.find_full_data_by_id(t.program_id) if t.program_id else None
-        user = await UsersDAO.find_one_or_none(id=t.user_id) if t.user_id else None
-        data['program'] = program.to_dict() if program else None
-        data['user'] = await user.to_dict() if user else None
+        # Используем предзагруженные данные вместо дополнительных запросов
+        data['program'] = t.program.to_dict() if hasattr(t, 'program') and t.program else None
+        data['user'] = await t.user.to_dict() if hasattr(t, 'user') and t.user else None
         result.append(data)
     return result
 
@@ -53,15 +51,14 @@ async def get_training_by_id(training_uuid: UUID, user_data = Depends(get_curren
     rez = await TrainingDAO.find_full_data(training_uuid)
     if rez is None:
         return {'message': f'Тренировка с ID {training_uuid} не найдена!'}
-    program = await ProgramDAO.find_one_or_none(id=rez.program_id)
-    user = await UsersDAO.find_one_or_none(id=rez.user_id) if rez.user_id else None
+    # Используем предзагруженные данные вместо дополнительных запросов
     data = rez.to_dict()
     data.pop('program_id', None)
     data.pop('user_id', None)
     data.pop('program_uuid', None)
     data.pop('user_uuid', None)
-    data['program'] = program.to_dict() if program else None
-    data['user'] = await user.to_dict() if user else None
+    data['program'] = rez.program.to_dict() if hasattr(rez, 'program') and rez.program else None
+    data['user'] = await rez.user.to_dict() if hasattr(rez, 'user') and rez.user else None
     return data
 
 
