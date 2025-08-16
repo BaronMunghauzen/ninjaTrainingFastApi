@@ -33,7 +33,8 @@ class TrainingDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
-                joinedload(cls.model.program).joinedload(Program.image)
+                joinedload(cls.model.program).joinedload(Program.image),
+                joinedload(cls.model.user)
             ).filter_by(uuid=object_uuid)
             result = await session.execute(query)
             result = result.unique()
@@ -80,7 +81,8 @@ class TrainingDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
-                joinedload(cls.model.program).joinedload(Program.image)
+                joinedload(cls.model.program).joinedload(Program.image),
+                joinedload(cls.model.user)
             ).filter_by(**filters)
             if hasattr(cls.model, 'order'):
                 query = query.order_by(cls.model.order.asc())
