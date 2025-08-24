@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.user_training.models import UserTraining
     from app.user_exercises.models import UserExercise
     from app.files.models import File
+    from app.achievements.models import Achievement
 
 
 class GenderEnum(str, Enum):
@@ -75,6 +76,9 @@ class User(Base):
 
     # Определяем отношения с пользовательскими упражнениями
     user_exercises: Mapped[list["UserExercise"]] = relationship("UserExercise", back_populates="user")
+
+    # Определяем отношения с достижениями
+    achievements: Mapped[list["Achievement"]] = relationship("Achievement", back_populates="user")
 
     # Определяем отношения с файлами (аватар) - исправляем конфликт
     avatar: Mapped[Optional["File"]] = relationship("File")

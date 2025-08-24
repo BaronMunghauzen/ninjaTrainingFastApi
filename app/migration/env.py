@@ -25,6 +25,7 @@ from app.user_exercises.models import UserExercise
 from app.files.models import File
 from app.exercise_reference.models import ExerciseReference
 from app.email_verification.models import EmailVerification
+from app.achievements.models import Achievement, AchievementType
 
 
 

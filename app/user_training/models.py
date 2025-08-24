@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.programs.models import Program
     from app.trainings.models import Training
     from app.users.models import User
+    from app.achievements.models import Achievement
 
 
 class TrainingStatus(str, Enum):
@@ -44,6 +45,7 @@ class UserTraining(Base):
     program: Mapped["Program"] = relationship("Program", back_populates="user_trainings")
     training: Mapped["Training"] = relationship("Training", back_populates="user_trainings")
     user: Mapped["User"] = relationship("User", back_populates="user_trainings")
+    achievements: Mapped[list["Achievement"]] = relationship("Achievement", back_populates="user_training")
 
 
     def __repr__(self):
