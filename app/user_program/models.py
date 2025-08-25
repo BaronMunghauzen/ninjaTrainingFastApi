@@ -1,10 +1,13 @@
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 import json
 
 from sqlalchemy import ForeignKey, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, str_uniq, int_pk, str_null_true, uuid_field
 from datetime import date, datetime
+
+if TYPE_CHECKING:
+    from app.achievements.models import Achievement
 
 
 # создаем модель таблицы тренировок
@@ -27,6 +30,7 @@ class UserProgram(Base):
     program: Mapped["Program"] = relationship("Program", back_populates="user_programs")
     user: Mapped["User"] = relationship("User", back_populates="user_programs")
     user_trainings: Mapped[list["UserTraining"]] = relationship("UserTraining", back_populates="user_program")
+    achievements: Mapped[list["Achievement"]] = relationship("Achievement", back_populates="user_program")
 
 
     def __repr__(self):

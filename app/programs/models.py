@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.trainings.models import Training
     from app.user_training.models import UserTraining
     from app.user_exercises.models import UserExercise
+    from app.achievements.models import Achievement
 
 
 # создаем модель таблицы программы тренировок
@@ -54,6 +55,7 @@ class Program(Base):
     user_trainings: Mapped[list["UserTraining"]] = relationship("UserTraining", back_populates="program")
 
     user_exercises: Mapped[list["UserExercise"]] = relationship("UserExercise", back_populates="program")
+    achievements: Mapped[list["Achievement"]] = relationship("Achievement", back_populates="program")
 
     def __str__(self):
         return (f"{self.__class__.__name__}(id={self.id}, "
