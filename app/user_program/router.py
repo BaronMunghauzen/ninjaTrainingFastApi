@@ -18,28 +18,8 @@ router = APIRouter(prefix='/user_programs', tags=['Работа с пользо�
 
 @router.get("/", summary="Получить все пользовательские программы")
 async def get_all_user_programs(request_body: RBUserProgram = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
-    user_programs = await UserProgramDAO.find_all(**request_body.to_dict())
-    # Получаем все user_id из пользовательских программ
-    user_ids = {up.user_id for up in user_programs if up.user_id is not None}
-    users = await UsersDAO.find_in('id', list(user_ids)) if user_ids else []
-    id_to_user = {u.id: await u.to_dict() for u in users}
-    result = []
-    for up in user_programs:
-        data = {
-            "uuid": str(up.uuid),
-            "caption": up.caption,
-            "status": up.status,
-            "stopped_at": up.stopped_at.isoformat() if up.stopped_at else None,
-            "stage": up.stage,
-            "schedule_type": up.schedule_type,
-            "training_days": up.training_days,
-            "start_date": up.start_date.isoformat() if up.start_date else None
-        }
-        # Подгружаем полную программу с image только по program_id
-        program = await ProgramDAO.find_full_data_by_id(up.program_id) if up.program_id else None
-        data['program'] = program.to_dict() if program else None
-        data['user'] = id_to_user.get(up.user_id) if up.user_id else None
-        result.append(data)
+    # Используем оптимизированный метод вместо find_all + N+1 запросов
+    result = await UserProgramDAO.find_all_with_programs_and_users(**request_body.to_dict())
     return result
 
 
@@ -48,7 +28,8 @@ async def get_user_program_by_id(user_program_uuid: UUID, user_data = Depends(ge
     rez = await UserProgramDAO.find_full_data(user_program_uuid)
     if rez is None:
         return {'message': f'Пользовательская программа с ID {user_program_uuid} не найдена!'}
-    program = await ProgramDAO.find_full_data_by_id(rez.program_id) if rez.program_id else None
+    # Используем оптимизированный метод для получения программы
+    program = await ProgramDAO.find_by_id_with_image(rez.program_id) if rez.program_id else None
     user = await UsersDAO.find_one_or_none(id=rez.user_id) if rez.user_id else None
     data = {
         "uuid": str(rez.uuid),
@@ -167,7 +148,8 @@ async def add_user_program(user_program: SUserProgramAdd, user_data = Depends(ge
         schedule_count = 0
     
     # Формируем ответ вручную
-    program = await ProgramDAO.find_full_data_by_id(user_program_obj.program_id) if user_program_obj.program_id else None
+    # Используем оптимизированный метод для получения программы
+    program = await ProgramDAO.find_by_id_with_image(user_program_obj.program_id) if user_program_obj.program_id else None
     user = await UsersDAO.find_one_or_none(id=user_program_obj.user_id) if user_program_obj.user_id else None
     data = {
         "uuid": str(user_program_obj.uuid),
@@ -209,7 +191,8 @@ async def update_user_program(user_program_uuid: UUID, user_program: SUserProgra
     check = await UserProgramDAO.update(user_program_uuid, **update_data)
     if check:
         updated_user_program = await UserProgramDAO.find_full_data(user_program_uuid)
-        program = await ProgramDAO.find_one_or_none(id=updated_user_program.program_id)
+        # Используем оптимизированный метод для получения программы
+        program = await ProgramDAO.find_by_id_with_image(updated_user_program.program_id) if updated_user_program.program_id else None
         user = await UsersDAO.find_one_or_none(id=updated_user_program.user_id) if updated_user_program.user_id else None
         data = updated_user_program.to_dict()
         data.pop('program_id', None)

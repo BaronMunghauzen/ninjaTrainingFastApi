@@ -39,9 +39,34 @@ async def get_all_trainings(request_body: RBTraining = Depends(), user_data = De
             "image_uuid": str(t.image.uuid) if hasattr(t, 'image') and t.image else None,
             "actual": t.actual,
         }
-        # Используем предзагруженные данные вместо дополнительных запросов
-        data['program'] = t.program.to_dict() if hasattr(t, 'program') and t.program else None
-        data['user'] = await t.user.to_dict() if hasattr(t, 'user') and t.user else None
+        # Безопасно получаем данные программы
+        if hasattr(t, 'program') and t.program:
+            try:
+                data['program'] = {
+                    "uuid": str(t.program.uuid),
+                    "actual": t.program.actual,
+                    "program_type": t.program.program_type,
+                    "caption": t.program.caption,
+                    "description": t.program.description,
+                    "difficulty_level": t.program.difficulty_level,
+                    "order": t.program.order,
+                    "training_days": t.program.training_days,
+                    "image_uuid": str(t.program.image.uuid) if hasattr(t.program, 'image') and t.program.image else None
+                }
+            except Exception:
+                data['program'] = None
+        else:
+            data['program'] = None
+            
+        # Безопасно получаем данные пользователя
+        if hasattr(t, 'user') and t.user:
+            try:
+                data['user'] = await t.user.to_dict()
+            except Exception:
+                data['user'] = None
+        else:
+            data['user'] = None
+            
         result.append(data)
     return result
 
@@ -57,8 +82,35 @@ async def get_training_by_id(training_uuid: UUID, user_data = Depends(get_curren
     data.pop('user_id', None)
     data.pop('program_uuid', None)
     data.pop('user_uuid', None)
-    data['program'] = rez.program.to_dict() if hasattr(rez, 'program') and rez.program else None
-    data['user'] = await rez.user.to_dict() if hasattr(rez, 'user') and rez.user else None
+    
+    # Безопасно получаем данные программы
+    if hasattr(rez, 'program') and rez.program:
+        try:
+            data['program'] = {
+                "uuid": str(rez.program.uuid),
+                "actual": rez.program.actual,
+                "program_type": rez.program.program_type,
+                "caption": rez.program.caption,
+                "description": rez.program.description,
+                "difficulty_level": rez.program.difficulty_level,
+                "order": rez.program.order,
+                "training_days": rez.program.training_days,
+                "image_uuid": str(rez.program.image.uuid) if hasattr(rez.program, 'image') and rez.program.image else None
+            }
+        except Exception:
+            data['program'] = None
+    else:
+        data['program'] = None
+        
+    # Безопасно получаем данные пользователя
+    if hasattr(rez, 'user') and rez.user:
+        try:
+            data['user'] = await rez.user.to_dict()
+        except Exception:
+            data['user'] = None
+    else:
+        data['user'] = None
+        
     return data
 
 
@@ -95,15 +147,40 @@ async def add_training(training: STrainingAdd, user_data = Depends(get_current_a
     training_uuid = await TrainingDAO.add(**values)
     training_obj = await TrainingDAO.find_full_data(training_uuid)
     # Формируем ответ как в get_training_by_id
-    program = await ProgramDAO.find_full_data(training_obj.program.uuid) if training_obj.program else None
-    user = await UsersDAO.find_one_or_none(id=training_obj.user_id) if training_obj.user_id else None
     data = training_obj.to_dict()
     data.pop('program_id', None)
     data.pop('user_id', None)
     data.pop('program_uuid', None)
     data.pop('user_uuid', None)
-    data['program'] = program.to_dict() if program else None
-    data['user'] = await user.to_dict() if user else None
+    
+    # Безопасно получаем данные программы
+    if hasattr(training_obj, 'program') and training_obj.program:
+        try:
+            data['program'] = {
+                "uuid": str(training_obj.program.uuid),
+                "actual": training_obj.program.actual,
+                "program_type": training_obj.program.program_type,
+                "caption": training_obj.program.caption,
+                "description": training_obj.program.description,
+                "difficulty_level": training_obj.program.difficulty_level,
+                "order": training_obj.program.order,
+                "training_days": training_obj.program.training_days,
+                "image_uuid": str(training_obj.program.image.uuid) if hasattr(training_obj.program, 'image') and training_obj.program.image else None
+            }
+        except Exception:
+            data['program'] = None
+    else:
+        data['program'] = None
+        
+    # Безопасно получаем данные пользователя
+    if hasattr(training_obj, 'user') and training_obj.user:
+        try:
+            data['user'] = await training_obj.user.to_dict()
+        except Exception:
+            data['user'] = None
+    else:
+        data['user'] = None
+        
     return data
 
 
@@ -136,15 +213,40 @@ async def update_training(training_uuid: UUID, training: STrainingUpdate, user_d
     check = await TrainingDAO.update(training_uuid, **update_data)
     if check:
         updated_training = await TrainingDAO.find_full_data(training_uuid)
-        program = await ProgramDAO.find_full_data(updated_training.program.uuid) if updated_training.program else None
-        user = await UsersDAO.find_one_or_none(id=updated_training.user_id) if updated_training.user_id else None
         data = updated_training.to_dict()
         data.pop('program_id', None)
         data.pop('user_id', None)
         data.pop('program_uuid', None)
         data.pop('user_uuid', None)
-        data['program'] = program.to_dict() if program else None
-        data['user'] = await user.to_dict() if user else None
+        
+        # Безопасно получаем данные программы
+        if hasattr(updated_training, 'program') and updated_training.program:
+            try:
+                data['program'] = {
+                    "uuid": str(updated_training.program.uuid),
+                    "actual": updated_training.program.actual,
+                    "program_type": updated_training.program.program_type,
+                    "caption": updated_training.program.caption,
+                    "description": updated_training.program.description,
+                    "difficulty_level": updated_training.program.difficulty_level,
+                    "order": updated_training.program.order,
+                    "training_days": updated_training.program.training_days,
+                    "image_uuid": str(updated_training.program.image.uuid) if hasattr(updated_training.program, 'image') and updated_training.program.image else None
+                }
+            except Exception:
+                data['program'] = None
+        else:
+            data['program'] = None
+            
+        # Безопасно получаем данные пользователя
+        if hasattr(updated_training, 'user') and updated_training.user:
+            try:
+                data['user'] = await updated_training.user.to_dict()
+            except Exception:
+                data['user'] = None
+        else:
+            data['user'] = None
+            
         return data
     else:
         return {"message": "Ошибка при обновлении тренировки!"}

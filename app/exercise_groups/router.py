@@ -19,14 +19,40 @@ async def get_all_exercise_groups(request_body: RBExerciseGroup = Depends(), use
     exercise_groups = await ExerciseGroupDAO.find_all(**request_body.to_dict())
     result = []
     for eg in exercise_groups:
-        data = eg.to_dict()
-        # Удаляем id и uuid поля
-        data.pop('training_id', None)
-        data.pop('training_uuid', None)
-        # Подгружаем полную тренировку с image
-        training = await TrainingDAO.find_full_data(eg.training.uuid) if eg.training else None
-        data['training'] = training.to_dict() if training else None
-        # Возвращаем просто UUID упражнений из поля exercises
+        # Безопасно формируем ответ, не обращаясь к связанным объектам
+        data = {
+            "uuid": str(eg.uuid),
+            "caption": eg.caption,
+            "description": eg.description,
+            "exercises": eg.get_exercises(),
+            "difficulty_level": eg.difficulty_level,
+            "order": eg.order,
+            "muscle_group": eg.muscle_group,
+            "stage": eg.stage,
+            "image_uuid": str(eg.image.uuid) if hasattr(eg, 'image') and eg.image else None
+        }
+        
+        # Безопасно добавляем данные тренировки
+        if eg.training:
+            try:
+                data['training'] = {
+                    "uuid": str(eg.training.uuid),
+                    "training_type": eg.training.training_type,
+                    "caption": eg.training.caption,
+                    "description": eg.training.description,
+                    "difficulty_level": eg.training.difficulty_level,
+                    "duration": eg.training.duration,
+                    "order": eg.training.order,
+                    "muscle_group": eg.training.muscle_group,
+                    "stage": eg.training.stage,
+                    "image_uuid": str(eg.training.image.uuid) if hasattr(eg.training, 'image') and eg.training.image else None,
+                    "actual": eg.training.actual
+                }
+            except Exception:
+                data['training'] = None
+        else:
+            data['training'] = None
+        
         result.append(data)
     return result
 
@@ -37,13 +63,40 @@ async def get_exercise_group_by_id(exercise_group_uuid: UUID, user_data = Depend
     if rez is None:
         return {'message': f'Группа упражнений с ID {exercise_group_uuid} не найдена!'}
     
-    training = await TrainingDAO.find_full_data(rez.training.uuid) if rez.training else None
+    # Безопасно формируем ответ, не обращаясь к связанным объектам
+    data = {
+        "uuid": str(rez.uuid),
+        "caption": rez.caption,
+        "description": rez.description,
+        "exercises": rez.get_exercises(),
+        "difficulty_level": rez.difficulty_level,
+        "order": rez.order,
+        "muscle_group": rez.muscle_group,
+        "stage": rez.stage,
+        "image_uuid": str(rez.image.uuid) if hasattr(rez, 'image') and rez.image else None
+    }
     
-    data = rez.to_dict()
-    data.pop('training_id', None)
-    data.pop('training_uuid', None)
-    data['training'] = training.to_dict() if training else None
-    # Возвращаем просто UUID упражнений из поля exercises
+    # Безопасно добавляем данные тренировки
+    if rez.training:
+        try:
+            data['training'] = {
+                "uuid": str(rez.training.uuid),
+                "training_type": rez.training.training_type,
+                "caption": rez.training.caption,
+                "description": rez.training.description,
+                "difficulty_level": rez.training.difficulty_level,
+                "duration": rez.training.duration,
+                "order": rez.training.order,
+                "muscle_group": rez.training.muscle_group,
+                "stage": rez.training.stage,
+                "image_uuid": str(rez.training.image.uuid) if hasattr(rez.training, 'image') and rez.training.image else None,
+                "actual": rez.training.actual
+            }
+        except Exception:
+            data['training'] = None
+    else:
+        data['training'] = None
+    
     return data
 
 
@@ -82,13 +135,40 @@ async def add_exercise_group(exercise_group: SExerciseGroupAdd, user_data = Depe
     exercise_group_uuid = await ExerciseGroupDAO.add(**values)
     exercise_group_obj = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
     
-    # Формируем ответ как в get_exercise_group_by_id
-    training = await TrainingDAO.find_full_data(exercise_group_obj.training.uuid) if exercise_group_obj.training else None
-    data = exercise_group_obj.to_dict()
-    data.pop('training_id', None)
-    data.pop('training_uuid', None)
-    data['training'] = training.to_dict() if training else None
-    # Возвращаем просто UUID упражнений из поля exercises
+    # Безопасно формируем ответ, не обращаясь к связанным объектам
+    data = {
+        "uuid": str(exercise_group_obj.uuid),
+        "caption": exercise_group_obj.caption,
+        "description": exercise_group_obj.description,
+        "exercises": exercise_group_obj.get_exercises(),
+        "difficulty_level": exercise_group_obj.difficulty_level,
+        "order": exercise_group_obj.order,
+        "muscle_group": exercise_group_obj.muscle_group,
+        "stage": exercise_group_obj.stage,
+        "image_uuid": str(exercise_group_obj.image.uuid) if hasattr(exercise_group_obj, 'image') and exercise_group_obj.image else None
+    }
+    
+    # Безопасно добавляем данные тренировки
+    if exercise_group_obj.training:
+        try:
+            data['training'] = {
+                "uuid": str(exercise_group_obj.training.uuid),
+                "training_type": exercise_group_obj.training.training_type,
+                "caption": exercise_group_obj.training.caption,
+                "description": exercise_group_obj.training.description,
+                "difficulty_level": exercise_group_obj.training.difficulty_level,
+                "duration": exercise_group_obj.training.duration,
+                "order": exercise_group_obj.training.order,
+                "muscle_group": exercise_group_obj.training.muscle_group,
+                "stage": exercise_group_obj.training.stage,
+                "image_uuid": str(exercise_group_obj.training.image.uuid) if hasattr(exercise_group_obj.training, 'image') and exercise_group_obj.training.image else None,
+                "actual": exercise_group_obj.training.actual
+            }
+        except Exception:
+            data['training'] = None
+    else:
+        data['training'] = None
+    
     return data
 
 
@@ -122,13 +202,41 @@ async def update_exercise_group(exercise_group_uuid: UUID, exercise_group: SExer
     check = await ExerciseGroupDAO.update(exercise_group_uuid, **update_data)
     if check:
         updated_exercise_group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
-        training = await TrainingDAO.find_one_or_none(id=updated_exercise_group.training_id) if updated_exercise_group.training_id else None
         
-        data = updated_exercise_group.to_dict()
-        data.pop('training_id', None)
-        data.pop('training_uuid', None)
-        data['training'] = await training.to_dict() if training else None
-        # Возвращаем просто UUID упражнений из поля exercises
+        # Безопасно формируем ответ, не обращаясь к связанным объектам
+        data = {
+            "uuid": str(updated_exercise_group.uuid),
+            "caption": updated_exercise_group.caption,
+            "description": updated_exercise_group.description,
+            "exercises": updated_exercise_group.get_exercises(),
+            "difficulty_level": updated_exercise_group.difficulty_level,
+            "order": updated_exercise_group.order,
+            "muscle_group": updated_exercise_group.muscle_group,
+            "stage": updated_exercise_group.stage,
+            "image_uuid": str(updated_exercise_group.image.uuid) if hasattr(updated_exercise_group, 'image') and updated_exercise_group.image else None
+        }
+        
+        # Безопасно добавляем данные тренировки
+        if updated_exercise_group.training:
+            try:
+                data['training'] = {
+                    "uuid": str(updated_exercise_group.training.uuid),
+                    "training_type": updated_exercise_group.training.training_type,
+                    "caption": updated_exercise_group.training.caption,
+                    "description": updated_exercise_group.training.description,
+                    "difficulty_level": updated_exercise_group.training.difficulty_level,
+                    "duration": updated_exercise_group.training.duration,
+                    "order": updated_exercise_group.training.order,
+                    "muscle_group": updated_exercise_group.training.muscle_group,
+                    "stage": updated_exercise_group.training.stage,
+                    "image_uuid": str(updated_exercise_group.training.image.uuid) if hasattr(updated_exercise_group.training, 'image') and updated_exercise_group.training.image else None,
+                    "actual": updated_exercise_group.training.actual
+                }
+            except Exception:
+                data['training'] = None
+        else:
+            data['training'] = None
+        
         return data
     else:
         return {"message": "Ошибка при обновлении группы упражнений!"}

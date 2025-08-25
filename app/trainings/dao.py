@@ -26,7 +26,13 @@ class TrainingDAO(BaseDAO):
             if program_id is not None:
                 query = query.filter_by(program_id=program_id)
             result = await session.execute(query)
-            return result.scalars().all()
+            objects = result.scalars().all()
+            
+            # Отключаем объекты от сессии, чтобы избежать проблем с lazy loading
+            for obj in objects:
+                session.expunge(obj)
+            
+            return objects
 
     @classmethod
     async def find_full_data(cls, object_uuid: UUID):
@@ -44,6 +50,9 @@ class TrainingDAO(BaseDAO):
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Объект {cls.model.__name__} с ID {object_uuid} не найден"
                 )
+            
+            # Отключаем объект от сессии, чтобы избежать проблем с lazy loading
+            session.expunge(object_info)
             return object_info
 
     @classmethod
@@ -65,6 +74,9 @@ class TrainingDAO(BaseDAO):
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Объект {cls.model.__name__} с ID {object_id} не найден"
                 )
+            
+            # Отключаем объект от сессии, чтобы избежать проблем с lazy loading
+            session.expunge(object_info)
             return object_info
 
     @classmethod
@@ -89,6 +101,11 @@ class TrainingDAO(BaseDAO):
             result = await session.execute(query)
             result = result.unique()
             objects = result.scalars().all()
+            
+            # Отключаем объекты от сессии, чтобы избежать проблем с lazy loading
+            for obj in objects:
+                session.expunge(obj)
+            
             return objects
 
     @classmethod
@@ -110,4 +127,30 @@ class TrainingDAO(BaseDAO):
             result = await session.execute(query)
             result = result.unique()
             objects = result.scalars().all()
+            
+            # Отключаем объекты от сессии, чтобы избежать проблем с lazy loading
+            for obj in objects:
+                session.expunge(obj)
+            
             return objects
+
+    @classmethod
+    async def find_by_id_with_image(cls, object_id: int):
+        """
+        Оптимизированный метод для получения тренировки по ID только с изображением
+        """
+        async with async_session_maker() as session:
+            query = select(cls.model).options(
+                joinedload(cls.model.image)
+            ).filter_by(id=object_id)
+            result = await session.execute(query)
+            object_info = result.scalar_one_or_none()
+            if not object_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Объект {cls.model.__name__} с ID {object_id} не найден"
+                )
+            
+            # Отключаем объект от сессии, чтобы избежать проблем с lazy loading
+            session.expunge(object_info)
+            return object_info
