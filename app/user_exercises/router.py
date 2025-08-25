@@ -17,44 +17,8 @@ router = APIRouter(prefix='/user_exercises', tags=['Работа с пользо
 
 @router.get("/", summary="Получить все пользовательские упражнения")
 async def get_all_user_exercises(request_body: RBUserExercise = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
-    user_exercises = await UserExerciseDAO.find_all(**request_body.to_dict())
-    # Получаем все связанные ID
-    program_ids = {ue.program_id for ue in user_exercises}
-    training_ids = {ue.training_id for ue in user_exercises}
-    user_ids = {ue.user_id for ue in user_exercises}
-    exercise_ids = {ue.exercise_id for ue in user_exercises}
-    
-    # Загружаем программы с полной информацией (включая image)
-    programs = []
-    for program_id in program_ids:
-        if program_id is not None:
-            try:
-                program = await ProgramDAO.find_full_data_by_id(program_id)
-                programs.append(program)
-            except:
-                pass
-    # Загружаем тренировки с полной информацией (включая image)
-    trainings = []
-    for training_id in training_ids:
-        try:
-            training = await TrainingDAO.find_full_data_by_id(training_id)
-            trainings.append(training)
-        except:
-            pass
-    users = await UsersDAO.find_in('id', list(user_ids)) if user_ids else []
-    # Загружаем упражнения с полной информацией (включая image)
-    exercises = []
-    for exercise_id in exercise_ids:
-        try:
-            exercise = await ExerciseDAO.find_full_data_by_id(exercise_id)
-            exercises.append(exercise)
-        except:
-            pass
-    
-    id_to_program = {p.id: p.to_dict() for p in programs}
-    id_to_training = {t.id: t.to_dict() for t in trainings}
-    id_to_user = {u.id: await u.to_dict() for u in users}
-    id_to_exercise = {e.id: e.to_dict() for e in exercises}
+    # Используем оптимизированный метод с предзагруженными связанными данными
+    user_exercises = await UserExerciseDAO.find_all_with_relations(**request_body.to_dict())
     
     result = []
     for ue in user_exercises:
@@ -64,35 +28,69 @@ async def get_all_user_exercises(request_body: RBUserExercise = Depends(), user_
         data.pop('training_id', None)
         data.pop('user_id', None)
         data.pop('exercise_id', None)
-        # Добавляем вложенные объекты
-        data['program'] = id_to_program.get(ue.program_id) if ue.program_id else None
-        data['training'] = id_to_training.get(ue.training_id)
-        data['user'] = id_to_user.get(ue.user_id)
-        data['exercise'] = id_to_exercise.get(ue.exercise_id)
+        
+        # Используем предзагруженные данные вместо дополнительных запросов
+        # Добавляем дополнительные проверки для избежания ошибок
+        try:
+            data['program'] = ue.program.to_dict() if hasattr(ue, 'program') and ue.program else None
+        except Exception:
+            data['program'] = None
+            
+        try:
+            data['training'] = ue.training.to_dict() if hasattr(ue, 'training') and ue.training else None
+        except Exception:
+            data['training'] = None
+            
+        try:
+            data['user'] = await ue.user.to_dict() if hasattr(ue, 'user') and ue.user else None
+        except Exception:
+            data['user'] = None
+            
+        try:
+            data['exercise'] = ue.exercise.to_dict() if hasattr(ue, 'exercise') and ue.exercise else None
+        except Exception:
+            data['exercise'] = None
+        
         result.append(data)
+    
     return result
 
 
 @router.get("/{user_exercise_uuid}", summary="Получить одно пользовательское упражнение по id")
 async def get_user_exercise_by_id(user_exercise_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
-    rez = await UserExerciseDAO.find_full_data(user_exercise_uuid)
+    # Используем оптимизированный метод с предзагруженными связанными данными
+    rez = await UserExerciseDAO.find_full_data_with_relations(user_exercise_uuid)
     if rez is None:
         return {'message': f'Пользовательское упражнение с ID {user_exercise_uuid} не найдено!'}
     
-    program = await ProgramDAO.find_one_or_none(id=rez.program_id)
-    training = await TrainingDAO.find_one_or_none(id=rez.training_id)
-    user = await UsersDAO.find_one_or_none(id=rez.user_id)
-    exercise = await ExerciseDAO.find_one_or_none(id=rez.exercise_id)
-    
+    # Используем предзагруженные данные вместо дополнительных запросов
     data = rez.to_dict()
     data.pop('program_id', None)
     data.pop('training_id', None)
     data.pop('user_id', None)
     data.pop('exercise_id', None)
-    data['program'] = program.to_dict() if program else None
-    data['training'] = training.to_dict() if training else None
-    data['user'] = await user.to_dict() if user else None
-    data['exercise'] = exercise.to_dict() if exercise else None
+    
+    # Добавляем дополнительные проверки для избежания ошибок
+    try:
+        data['program'] = rez.program.to_dict() if hasattr(rez, 'program') and rez.program else None
+    except Exception:
+        data['program'] = None
+        
+    try:
+        data['training'] = rez.training.to_dict() if hasattr(rez, 'training') and rez.training else None
+    except Exception:
+        data['training'] = None
+        
+    try:
+        data['user'] = await rez.user.to_dict() if hasattr(rez, 'user') and rez.user else None
+    except Exception:
+        data['user'] = None
+        
+    try:
+        data['exercise'] = rez.exercise.to_dict() if hasattr(rez, 'exercise') and rez.exercise else None
+    except Exception:
+        data['exercise'] = None
+    
     return data
 
 
@@ -132,25 +130,38 @@ async def add_user_exercise(user_exercise: SUserExerciseAdd, user_data = Depends
     filtered_values = {k: v for k, v in values.items() if k in valid_fields}
 
     user_exercise_uuid = await UserExerciseDAO.add(**filtered_values)
-    user_exercise_obj = await UserExerciseDAO.find_full_data(user_exercise_uuid)
     
-    # Формируем ответ как в get_user_exercise_by_id
-    # Загружаем program, training, exercise с полной информацией
-    program = await ProgramDAO.find_full_data_by_id(user_exercise_obj.program_id) if user_exercise_obj.program_id else None
-    training = await TrainingDAO.find_full_data_by_id(user_exercise_obj.training_id)
-    exercise_obj = await ExerciseDAO.find_one_or_none(id=user_exercise_obj.exercise_id)
-    exercise = await ExerciseDAO.find_full_data(exercise_obj.uuid) if exercise_obj else None
-    user = await UsersDAO.find_one_or_none(id=user_exercise_obj.user_id)
+    # Используем оптимизированный метод с предзагруженными связанными данными
+    user_exercise_obj = await UserExerciseDAO.find_full_data_with_relations(user_exercise_uuid)
     
+    # Формируем ответ используя предзагруженные данные
     data = user_exercise_obj.to_dict()
     data.pop('program_id', None)
     data.pop('training_id', None)
     data.pop('user_id', None)
     data.pop('exercise_id', None)
-    data['program'] = program.to_dict() if program else None
-    data['training'] = training.to_dict() if training else None
-    data['user'] = await user.to_dict() if user else None
-    data['exercise'] = exercise.to_dict() if exercise else None
+    
+    # Используем предзагруженные данные вместо дополнительных запросов
+    try:
+        data['program'] = user_exercise_obj.program.to_dict() if hasattr(user_exercise_obj, 'program') and user_exercise_obj.program else None
+    except Exception:
+        data['program'] = None
+        
+    try:
+        data['training'] = user_exercise_obj.training.to_dict() if hasattr(user_exercise_obj, 'training') and user_exercise_obj.training else None
+    except Exception:
+        data['training'] = None
+        
+    try:
+        data['user'] = await user_exercise_obj.user.to_dict() if hasattr(user_exercise_obj, 'user') and user_exercise_obj.user else None
+    except Exception:
+        data['user'] = None
+        
+    try:
+        data['exercise'] = user_exercise_obj.exercise.to_dict() if hasattr(user_exercise_obj, 'exercise') and user_exercise_obj.exercise else None
+    except Exception:
+        data['exercise'] = None
+    
     return data
 
 
@@ -185,21 +196,36 @@ async def update_user_exercise(user_exercise_uuid: UUID, user_exercise: SUserExe
 
     check = await UserExerciseDAO.update(user_exercise_uuid, **update_data)
     if check:
-        updated_user_exercise = await UserExerciseDAO.find_full_data(user_exercise_uuid)
-        program = await ProgramDAO.find_one_or_none(id=updated_user_exercise.program_id)
-        training = await TrainingDAO.find_one_or_none(id=updated_user_exercise.training_id)
-        user = await UsersDAO.find_one_or_none(id=updated_user_exercise.user_id)
-        exercise = await ExerciseDAO.find_one_or_none(id=updated_user_exercise.exercise_id)
+        # Используем оптимизированный метод с предзагруженными связанными данными
+        updated_user_exercise = await UserExerciseDAO.find_full_data_with_relations(user_exercise_uuid)
         
         data = updated_user_exercise.to_dict()
         data.pop('program_id', None)
         data.pop('training_id', None)
         data.pop('user_id', None)
         data.pop('exercise_id', None)
-        data['program'] = program.to_dict() if program else None
-        data['training'] = training.to_dict() if training else None
-        data['user'] = await user.to_dict() if user else None
-        data['exercise'] = exercise.to_dict() if exercise else None
+        
+        # Используем предзагруженные данные вместо дополнительных запросов
+        try:
+            data['program'] = updated_user_exercise.program.to_dict() if hasattr(updated_user_exercise, 'program') and updated_user_exercise.program else None
+        except Exception:
+            data['program'] = None
+            
+        try:
+            data['training'] = updated_user_exercise.training.to_dict() if hasattr(updated_user_exercise, 'training') and updated_user_exercise.training else None
+        except Exception:
+            data['training'] = None
+            
+        try:
+            data['user'] = await updated_user_exercise.user.to_dict() if hasattr(updated_user_exercise, 'user') and updated_user_exercise.user else None
+        except Exception:
+            data['user'] = None
+            
+        try:
+            data['exercise'] = updated_user_exercise.exercise.to_dict() if hasattr(updated_user_exercise, 'exercise') and updated_user_exercise.exercise else None
+        except Exception:
+            data['exercise'] = None
+        
         return data
     else:
         return {"message": "Ошибка при обновлении пользовательского упражнения!"}
@@ -225,20 +251,37 @@ async def set_user_exercise_passed(user_exercise_uuid: UUID, user_data = Depends
         check = await UserExerciseDAO.update(user_exercise_uuid, status=ExerciseStatus.PASSED)
         updated_user_exercise = await UserExerciseDAO.find_full_data(user_exercise_uuid) if check else None
     if check and updated_user_exercise:
-        program = await ProgramDAO.find_full_data_by_id(updated_user_exercise.program_id)
-        training = await TrainingDAO.find_full_data_by_id(updated_user_exercise.training_id)
-        exercise_obj = await ExerciseDAO.find_one_or_none(id=updated_user_exercise.exercise_id)
-        exercise = await ExerciseDAO.find_full_data(exercise_obj.uuid) if exercise_obj else None
-        user = await UsersDAO.find_one_or_none(id=updated_user_exercise.user_id)
+        # Используем оптимизированный метод с предзагруженными связанными данными
+        if not hasattr(updated_user_exercise, 'program') or not updated_user_exercise.program:
+            updated_user_exercise = await UserExerciseDAO.find_full_data_with_relations(user_exercise_uuid)
+        
         data = updated_user_exercise.to_dict()
         data.pop('program_id', None)
         data.pop('training_id', None)
         data.pop('user_id', None)
         data.pop('exercise_id', None)
-        data['program'] = program.to_dict() if program else None
-        data['training'] = training.to_dict() if training else None
-        data['user'] = await user.to_dict() if user else None
-        data['exercise'] = exercise.to_dict() if exercise else None
+        
+        # Используем предзагруженные данные вместо дополнительных запросов
+        try:
+            data['program'] = updated_user_exercise.program.to_dict() if hasattr(updated_user_exercise, 'program') and updated_user_exercise.program else None
+        except Exception:
+            data['program'] = None
+            
+        try:
+            data['training'] = updated_user_exercise.training.to_dict() if hasattr(updated_user_exercise, 'training') and updated_user_exercise.training else None
+        except Exception:
+            data['training'] = None
+            
+        try:
+            data['user'] = await updated_user_exercise.user.to_dict() if hasattr(updated_user_exercise, 'user') and updated_user_exercise.user else None
+        except Exception:
+            data['user'] = None
+            
+        try:
+            data['exercise'] = updated_user_exercise.exercise.to_dict() if hasattr(updated_user_exercise, 'exercise') and updated_user_exercise.exercise else None
+        except Exception:
+            data['exercise'] = None
+        
         return data
     else:
         return {"message": "Ошибка при обновлении статуса!"}

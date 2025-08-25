@@ -98,8 +98,7 @@ class UserTrainingDAO(BaseDAO):
 
     @classmethod
     async def update(cls, object_uuid: UUID, **values):
-        """Переопределяем метод update для очистки кэша при обновлении"""
-        # Кэш больше не используется
+        return await super().update(object_uuid, **values)
     
     @classmethod
     async def find_early_morning_completed_trainings(cls, user_id: int, min_count: int = 5):
@@ -518,4 +517,3 @@ class UserTrainingDAO(BaseDAO):
             
             # Требуем минимум 80% недель (примерно 42 недели из 52)
             return qualifying_weeks >= 42
-        return await super().update(object_uuid, **values)
