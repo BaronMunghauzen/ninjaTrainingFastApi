@@ -24,7 +24,7 @@ class Program(Base):
     id: Mapped[int_pk]
     uuid: Mapped[uuid_field]
     actual: Mapped[bool] = mapped_column(default=True, server_default=text('true'), nullable=False)
-    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), nullable=True)
     program_type: Mapped[str]
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=True)
     caption: Mapped[str]
@@ -70,6 +70,7 @@ class Program(Base):
         return {
             "uuid": str(self.uuid),
             "actual": self.actual,
+            "category_uuid": str(self.category.uuid) if hasattr(self, 'category') and self.category and hasattr(self.category, 'uuid') else None,
             "program_type": self.program_type,
             "caption": self.caption,
             "description": self.description,
@@ -77,7 +78,27 @@ class Program(Base):
             "order": self.order,
             "schedule_type": self.schedule_type,
             "training_days": self.training_days,
-            "image_uuid": str(self.image.uuid) if hasattr(self, 'image') and self.image else None
+            "image_uuid": str(self.image.uuid) if hasattr(self, 'image') and self.image and hasattr(self.image, 'uuid') else None
+        }
+
+    def to_dict_safe(self):
+        """
+        Безопасная версия to_dict для использования без загрузки связанных объектов
+        """
+        return {
+            "uuid": str(self.uuid),
+            "actual": self.actual,
+            "category_uuid": None,  # Не загружаем category в оптимизированных запросах
+            "program_type": self.program_type,
+            "caption": self.caption,
+            "description": self.description,
+            "difficulty_level": self.difficulty_level,
+            "order": self.order,
+            "schedule_type": self.schedule_type,
+            "training_days": self.training_days,
+            "image_uuid": str(self.image.uuid) if hasattr(self, 'image') and self.image and hasattr(self.image, 'uuid') else None,
+            "category_id": self.category_id,
+            "user_id": self.user_id
         }
 
     def get_training_days_list(self) -> List[int]:

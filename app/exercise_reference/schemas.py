@@ -32,4 +32,11 @@ class SExerciseReferenceUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     muscle_group: Optional[str] = Field(None, min_length=1, max_length=50, description="Группа мышц")
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
-    video_uuid: Optional[str] = Field(None, description="UUID видео (files)") 
+    video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
+
+class SPaginationResponse(BaseModel):
+    items: list[dict] = Field(..., description="Список упражнений")
+    total: int = Field(..., description="Общее количество упражнений")
+    page: int = Field(..., description="Номер текущей страницы")
+    size: int = Field(..., description="Размер страницы")
+    pages: int = Field(..., description="Общее количество страниц") 

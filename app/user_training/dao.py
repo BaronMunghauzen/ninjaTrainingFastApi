@@ -92,6 +92,171 @@ class UserTrainingDAO(BaseDAO):
             return objects, total_count
 
     @classmethod
+    async def find_all_with_full_relations(cls, **filter_by):
+        """
+        Оптимизированный метод для получения user_trainings с полными связанными данными
+        Использует batch loading для избежания N+1 проблемы
+        """
+        # Сначала получаем user_trainings
+        user_trainings = await cls.find_all_with_relations(**filter_by)
+        
+        if not user_trainings:
+            return []
+        
+        # Получаем все уникальные ID для batch loading
+        user_program_ids = {ut.user_program_id for ut in user_trainings if ut.user_program_id}
+        user_ids = {ut.user_id for ut in user_trainings if ut.user_id}
+        program_ids = {ut.program_id for ut in user_trainings if ut.program_id}
+        training_ids = {ut.training_id for ut in user_trainings if ut.training_id}
+        
+        # Batch loading для всех связанных объектов
+        user_programs = await UserProgramDAO.find_in('id', list(user_program_ids)) if user_program_ids else []
+        users = await UsersDAO.find_in('id', list(user_ids)) if user_ids else []
+        
+        # Загружаем программы с изображениями (оптимизированно)
+        programs = []
+        if program_ids:
+            for program_id in program_ids:
+                try:
+                    # Используем оптимизированный метод для программ
+                    from app.programs.dao import ProgramDAO
+                    program = await ProgramDAO.find_by_id_with_image(program_id)
+                    programs.append(program)
+                except:
+                    # Если программа не найдена, пропускаем
+                    pass
+        
+        # Загружаем тренировки с изображениями (оптимизированно)
+        trainings = []
+        if training_ids:
+            for training_id in training_ids:
+                try:
+                    # Используем оптимизированный метод для тренировок
+                    from app.trainings.dao import TrainingDAO
+                    training = await TrainingDAO.find_by_id_with_image(training_id)
+                    trainings.append(training)
+                except:
+                    # Если тренировка не найдена, пропускаем
+                    pass
+        
+        # Создаем словари для быстрого поиска
+        id_to_user_program = {up.id: up.to_dict() for up in user_programs}
+        id_to_program = {p.id: p.to_dict() for p in programs}
+        id_to_training = {t.id: t.to_dict() for t in trainings}
+        
+        # Обрабатываем пользователей отдельно, так как to_dict() асинхронный
+        id_to_user = {}
+        for u in users:
+            id_to_user[u.id] = await u.to_dict()
+        
+        # Формируем результат
+        result = []
+        for ut in user_trainings:
+            data = {
+                "uuid": str(ut.uuid),
+                "status": ut.status.value,
+                "training_date": ut.training_date.isoformat() if ut.training_date else None,
+                "week": ut.week,
+                "weekday": ut.weekday,
+                "is_rest_day": ut.is_rest_day,
+                "stage": ut.stage
+            }
+            
+            # Используем предзагруженные связанные данные
+            data['user_program'] = id_to_user_program.get(ut.user_program_id)
+            data['program'] = id_to_program.get(ut.program_id)
+            data['training'] = id_to_training.get(ut.training_id)
+            data['user'] = id_to_user.get(ut.user_id)
+            
+            result.append(data)
+        
+        return result
+
+    @classmethod
+    async def find_all_with_full_relations_paginated(cls, page: int = 1, page_size: int = 50, **filter_by):
+        """
+        Оптимизированный метод с пагинацией и полными связанными данными
+        """
+        # Получаем user_trainings с пагинацией
+        user_trainings, total_count = await cls.find_all_with_relations_paginated(
+            page=page, 
+            page_size=page_size, 
+            **filter_by
+        )
+        
+        if not user_trainings:
+            return [], total_count
+        
+        # Получаем все уникальные ID для batch loading
+        user_program_ids = {ut.user_program_id for ut in user_trainings if ut.user_program_id}
+        user_ids = {ut.user_id for ut in user_trainings if ut.user_id}
+        program_ids = {ut.program_id for ut in user_trainings if ut.program_id}
+        training_ids = {ut.training_id for ut in user_trainings if ut.training_id}
+        
+        # Batch loading для всех связанных объектов
+        user_programs = await UserProgramDAO.find_in('id', list(user_program_ids)) if user_program_ids else []
+        users = await UsersDAO.find_in('id', list(user_ids)) if user_ids else []
+        
+        # Загружаем программы с изображениями (оптимизированно)
+        programs = []
+        if program_ids:
+            for program_id in program_ids:
+                try:
+                    # Используем оптимизированный метод для программ
+                    from app.programs.dao import ProgramDAO
+                    program = await ProgramDAO.find_by_id_with_image(program_id)
+                    programs.append(program)
+                except:
+                    # Если программа не найдена, пропускаем
+                    pass
+        
+        # Загружаем тренировки с изображениями (оптимизированно)
+        trainings = []
+        if training_ids:
+            for training_id in training_ids:
+                try:
+                    # Используем оптимизированный метод для тренировок
+                    from app.trainings.dao import TrainingDAO
+                    training = await TrainingDAO.find_by_id_with_image(training_id)
+                    trainings.append(training)
+                except:
+                    # Если тренировка не найдена, пропускаем
+                    pass
+        
+        # Создаем словари для быстрого поиска
+        id_to_user_program = {up.id: up.to_dict() for up in user_programs}
+        id_to_program = {p.id: p.to_dict() for p in programs}
+        id_to_training = {t.id: t.to_dict() for t in trainings}
+        
+        # Обрабатываем пользователей отдельно, так как to_dict() асинхронный
+        id_to_user = {}
+        for u in users:
+            id_to_user[u.id] = await u.to_dict()
+        
+        # Формируем результат
+        result = []
+        for ut in user_trainings:
+            data = {
+                "uuid": str(ut.uuid),
+                "status": ut.status.value,
+                "training_date": ut.training_date.isoformat() if ut.training_date else None,
+                "week": ut.week,
+                "weekday": ut.weekday,
+                "is_rest_day": ut.is_rest_day,
+                "stage": ut.stage
+            }
+            
+            # Используем предзагруженные связанные данные
+            data['user_program'] = id_to_user_program.get(ut.user_program_id)
+            data['program'] = id_to_program.get(ut.program_id)
+            data['training'] = id_to_training.get(ut.training_id)
+            data['user'] = id_to_user.get(ut.user_id)
+            
+            result.append(data)
+        
+        return result, total_count
+
+    @classmethod
     def clear_cache(cls):
         """Очищает кэш"""
         pass  # Кэш больше не используется

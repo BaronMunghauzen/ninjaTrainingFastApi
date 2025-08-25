@@ -23,11 +23,14 @@ class BaseDAO:
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
             if uuid_field in filters:
                 uuid_value = filters.pop(uuid_field)
-                related_obj = await related_dao.find_one_or_none(uuid=uuid_value)
-                if related_obj:
-                    filters[fk_field] = related_obj.id
-                else:
-                    return []
+                # Если uuid_value не None, то ищем связанный объект
+                if uuid_value is not None:
+                    related_obj = await related_dao.find_one_or_none(uuid=uuid_value)
+                    if related_obj:
+                        filters[fk_field] = related_obj.id
+                    else:
+                        return []
+                # Если uuid_value None, то не добавляем фильтр (позволяет искать записи без связанного объекта)
         async with async_session_maker() as session:
             query = select(cls.model).filter_by(**filters)
             
@@ -242,6 +245,21 @@ class BaseDAO:
                 async with session.begin():
                     print(f"add: Транзакция начата")
                     prepared_values = {}
+                    
+                    # Обрабатываем uuid_fk_map для связанных моделей
+                    for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
+                        if uuid_field in values:
+                            uuid_value = values.pop(uuid_field)
+                            # Если uuid_value не None, то ищем связанный объект
+                            if uuid_value is not None:
+                                related_obj = await related_dao.find_one_or_none(uuid=uuid_value)
+                                if related_obj:
+                                    prepared_values[fk_field] = related_obj.id
+                                else:
+                                    raise ValueError(f"Связанный объект {uuid_field} с UUID {uuid_value} не найден")
+                            # Если uuid_value None, то не добавляем поле (позволяет создавать записи без связанного объекта)
+                    
+                    # Обрабатываем остальные поля
                     for key, value in values.items():
                         if hasattr(value, 'id'):  # Если значение - объект модели
                             prepared_values[f"{key}_id"] = value.id
@@ -309,13 +327,37 @@ class BaseDAO:
         async with async_session_maker() as session:
             try:
                 async with session.begin():
+                    prepared_values = {}
+                    
+                    # Обрабатываем uuid_fk_map для связанных моделей
+                    for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
+                        if uuid_field in values:
+                            uuid_value = values.pop(uuid_field)
+                            # Если uuid_value не None, то ищем связанный объект
+                            if uuid_value is not None:
+                                related_obj = await related_dao.find_one_or_none(uuid=uuid_value)
+                                if related_obj:
+                                    prepared_values[fk_field] = related_obj.id
+                                else:
+                                    raise ValueError(f"Связанный объект {uuid_field} с UUID {uuid_value} не найден")
+                            # Если uuid_value None, то устанавливаем поле в None
+                            else:
+                                prepared_values[fk_field] = None
+                    
+                    # Обрабатываем остальные поля
+                    for key, value in values.items():
+                        if hasattr(value, 'id'):  # Если значение - объект модели
+                            prepared_values[f"{key}_id"] = value.id
+                        else:
+                            prepared_values[key] = value
+                    
                     # Проверка уникальности полей (исключаем текущий объект)
-                    await cls._check_uniqueness(session, values, exclude_uuid=object_uuid)
+                    await cls._check_uniqueness(session, prepared_values, exclude_uuid=object_uuid)
 
                     query = (
                         sqlalchemy_update(cls.model)
                         .where(cls.model.uuid == object_uuid)
-                        .values(**values)
+                        .values(**prepared_values)
                         .execution_options(synchronize_session="fetch")
                     )
                     result = await session.execute(query)

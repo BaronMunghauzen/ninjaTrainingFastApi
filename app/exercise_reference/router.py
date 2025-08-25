@@ -2,7 +2,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from app.exercise_reference.dao import ExerciseReferenceDAO
 from app.exercise_reference.rb import RBExerciseReference
-from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate
+from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate, SPaginationResponse
 from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.files.dao import FilesDAO
 from app.files.service import FileService
@@ -11,25 +11,78 @@ from app.users.dao import UsersDAO
 router = APIRouter(prefix='/exercise_reference', tags=['Справочник упражнений'])
 
 @router.get('/', summary='Получить все упражнения справочника')
-async def get_all_exercise_references(request_body: RBExerciseReference = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
-    exercises = await ExerciseReferenceDAO.find_all(**request_body.to_dict())
-    return [e.to_dict() for e in exercises]
+async def get_all_exercise_references(
+    page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
+    size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
+    request_body: RBExerciseReference = Depends(), 
+    user_data = Depends(get_current_user_user)
+) -> SPaginationResponse:
+    filters = request_body.to_dict()
+    
+    # Если пагинация не нужна (page=0 или size=0), используем старый метод
+    if page == 0 or size == 0:
+        exercises = await ExerciseReferenceDAO.find_all(**filters)
+        items = [e.to_dict() for e in exercises]
+        return SPaginationResponse(
+            items=items,
+            total=len(items),
+            page=0,
+            size=0,
+            pages=1
+        )
+    
+    # Используем новый метод с пагинацией
+    result = await ExerciseReferenceDAO.find_all_paginated(
+        page=page,
+        size=size,
+        **filters
+    )
+    
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
+    
+    return SPaginationResponse(
+        items=items,
+        total=result["total"],
+        page=result["page"],
+        size=result["size"],
+        pages=result["pages"]
+    )
 
 @router.get('/search/by-caption', summary='Поиск справочника упражнений по части названия (caption)')
 async def search_exercise_reference_by_caption(
     caption: str = Query(..., description="Часть названия упражнения (поиск без учета регистра)"),
+    page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
+    size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
     request_body: RBExerciseReference = Depends(),
     user_data = Depends(get_current_user_user)
-) -> list[dict]:
+) -> SPaginationResponse:
     filters = request_body.to_dict()
-    results = await ExerciseReferenceDAO.find_by_caption(caption=caption, **filters)
-    return [e.to_dict() for e in results]
+    result = await ExerciseReferenceDAO.find_by_caption_paginated(
+        caption=caption, 
+        page=page, 
+        size=size, 
+        **filters
+    )
+    
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
+    
+    return SPaginationResponse(
+        items=items,
+        total=result["total"],
+        page=result["page"],
+        size=result["size"],
+        pages=result["pages"]
+    )
 
 @router.get('/available/{user_uuid}', summary='Получить все доступные упражнения для пользователя')
 async def get_available_exercises(
     user_uuid: UUID,
+    page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
+    size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
     user_data = Depends(get_current_user_user)
-) -> list[dict]:
+) -> SPaginationResponse:
     """
     Получить все доступные упражнения для пользователя:
     - Все системные упражнения (exercise_type = "system")
@@ -44,20 +97,33 @@ async def get_available_exercises(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     
-    # Получаем все доступные упражнения
-    exercises = await ExerciseReferenceDAO.search_by_caption(
+    # Получаем все доступные упражнения с пагинацией
+    result = await ExerciseReferenceDAO.search_by_caption_paginated(
         search_query="",  # Пустая строка для получения всех упражнений
-        user_id=user.id
+        user_id=user.id,
+        page=page,
+        size=size
     )
     
-    return [e.to_dict() for e in exercises]
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
+    
+    return SPaginationResponse(
+        items=items,
+        total=result["total"],
+        page=result["page"],
+        size=result["size"],
+        pages=result["pages"]
+    )
 
 @router.get('/available/{user_uuid}/search/by-caption', summary='Поиск доступных упражнений по части названия (caption)')
 async def search_available_exercises_by_caption(
     user_uuid: UUID,
     caption: str = Query(..., description="Часть названия упражнения (поиск без учета регистра)"),
+    page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
+    size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
     user_data = Depends(get_current_user_user)
-) -> list[dict]:
+) -> SPaginationResponse:
     """
     Поиск доступных упражнений для пользователя по части названия:
     - Все системные упражнения (exercise_type = "system"), содержащие caption
@@ -72,13 +138,24 @@ async def search_available_exercises_by_caption(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     
-    # Получаем доступные упражнения по caption
-    exercises = await ExerciseReferenceDAO.search_by_caption(
+    # Получаем доступные упражнения по caption с пагинацией
+    result = await ExerciseReferenceDAO.search_by_caption_paginated(
         search_query=caption,
-        user_id=user.id
+        user_id=user.id,
+        page=page,
+        size=size
     )
     
-    return [e.to_dict() for e in exercises]
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
+    
+    return SPaginationResponse(
+        items=items,
+        total=result["total"],
+        page=result["page"],
+        size=result["size"],
+        pages=result["pages"]
+    )
 
 @router.get('/{exercise_reference_uuid}', summary='Получить упражнение справочника по uuid')
 async def get_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:

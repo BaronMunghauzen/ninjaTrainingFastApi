@@ -144,72 +144,12 @@ async def get_all_user_trainings(
     page: int = Query(1, ge=1, description="Номер страницы"),
     page_size: int = Query(50, ge=1, le=100, description="Размер страницы")
 ) -> dict:
-    # Используем оптимизированный метод с пагинацией на уровне БД
-    user_trainings, total_count = await UserTrainingDAO.find_all_with_relations_paginated(
+    # Используем оптимизированный метод с полными связанными данными
+    result, total_count = await UserTrainingDAO.find_all_with_full_relations_paginated(
         page=page, 
         page_size=page_size, 
         **request_body.to_dict()
     )
-    
-    # Получаем все связанные ID для batch загрузки
-    user_program_ids = {ut.user_program_id for ut in user_trainings}
-    user_ids = {ut.user_id for ut in user_trainings}
-    program_ids = {ut.program_id for ut in user_trainings if ut.program_id}
-    training_ids = {ut.training_id for ut in user_trainings if ut.training_id}
-    
-    # Batch загрузка всех связанных данных с полной информацией
-    user_programs = await UserProgramDAO.find_in('id', list(user_program_ids)) if user_program_ids else []
-    users = await UsersDAO.find_in('id', list(user_ids)) if user_ids else []
-    
-    # Загружаем программы с полной информацией (включая image)
-    programs = []
-    for program_id in program_ids:
-        try:
-            program = await ProgramDAO.find_full_data_by_id(program_id)
-            programs.append(program)
-        except:
-            # Если программа не найдена, пропускаем
-            pass
-    
-    # Загружаем тренировки с полной информацией (включая image)
-    trainings = []
-    for training_id in training_ids:
-        try:
-            training = await TrainingDAO.find_full_data_by_id(training_id)
-            trainings.append(training)
-        except:
-            # Если тренировка не найдена, пропускаем
-            pass
-    
-    # Создаем словари для быстрого поиска
-    id_to_user_program = {up.id: up.to_dict() for up in user_programs}
-    id_to_program = {p.id: p.to_dict() for p in programs}
-    id_to_training = {t.id: t.to_dict() for t in trainings}
-    
-    # Обрабатываем пользователей отдельно, так как to_dict() асинхронный
-    id_to_user = {}
-    for u in users:
-        id_to_user[u.id] = await u.to_dict()
-    
-    result = []
-    for ut in user_trainings:
-        data = {
-            "uuid": str(ut.uuid),
-            "status": ut.status.value,
-            "training_date": ut.training_date.isoformat() if ut.training_date else None,
-            "week": ut.week,
-            "weekday": ut.weekday,
-            "is_rest_day": ut.is_rest_day,
-            "stage": ut.stage
-        }
-        
-        # Используем предзагруженные связанные данные
-        data['user_program'] = id_to_user_program.get(ut.user_program_id)
-        data['program'] = id_to_program.get(ut.program_id)
-        data['training'] = id_to_training.get(ut.training_id)
-        data['user'] = id_to_user.get(ut.user_id)
-        
-        result.append(data)
     
     return {
         "data": result,
@@ -298,7 +238,8 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
     # Если stage не указан, пробуем взять из training
     if 'stage' not in values or values['stage'] is None:
         if 'training_id' in values:
-            training = await TrainingDAO.find_full_data_by_id(values['training_id'])
+            # Используем оптимизированный метод для получения тренировки
+            training = await TrainingDAO.find_by_id_with_image(values['training_id'])
             if training:
                 values['stage'] = training.stage
 
@@ -312,7 +253,8 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
     # Формируем ответ как в get_user_training_by_id
     user_program = await UserProgramDAO.find_one_or_none(id=user_training_obj.user_program_id) if user_training_obj.user_program_id else None
     program = await ProgramDAO.find_one_or_none(id=user_training_obj.program_id) if user_training_obj.program_id else None
-    training = await TrainingDAO.find_full_data_by_id(user_training_obj.training_id) if user_training_obj.training_id else None
+    # Используем оптимизированный метод для получения тренировки
+    training = await TrainingDAO.find_by_id_with_image(user_training_obj.training_id) if user_training_obj.training_id else None
     user = await UsersDAO.find_one_or_none(id=user_training_obj.user_id) if user_training_obj.user_id else None
     
     data = user_training_obj.to_dict()

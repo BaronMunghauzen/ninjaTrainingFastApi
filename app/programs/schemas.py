@@ -23,11 +23,11 @@ class SProgram(BaseModel):
 
 class SProgramAdd(BaseModel):
     actual: bool = Field(True, description="Актуальность программы")
-    category_uuid: str = Field(..., description="UUID категории")
+    category_uuid: Optional[str] = Field(None, description="UUID категории")
     program_type: str = Field(..., min_length=1, max_length=50, description="Тип программы")
     user_uuid: Optional[str] = Field(None, description="UUID пользователя")
     caption: str = Field(..., min_length=1, max_length=100, description="Название программы")
-    description: str = Field(..., min_length=1, max_length=500, description="Описание программы")
+    description: str = Field(..., min_length=1, description="Описание программы")
     difficulty_level: Optional[int] = Field(None, ge=1, le=10, description="Уровень сложности (1-10)")
     order: int = Field(0, description="Порядок для сортировки")
     schedule_type: str = Field('weekly', description="Тип расписания (weekly, custom)")
@@ -41,7 +41,7 @@ class SProgramUpdate(BaseModel):
     program_type: Optional[str] = Field(None, min_length=1, max_length=50, description="Тип программы")
     user_uuid: Optional[str] = Field(None, description="UUID пользователя")
     caption: Optional[str] = Field(None, min_length=1, max_length=100, description="Название программы")
-    description: Optional[str] = Field(None, min_length=1, max_length=500, description="Описание программы")
+    description: Optional[str] = Field(None, min_length=1, description="Описание программы")
     difficulty_level: Optional[int] = Field(None, ge=1, le=10, description="Уровень сложности (1-10)")
     order: Optional[int] = Field(None, description="Порядок для сортировки")
     schedule_type: Optional[str] = Field(None, description="Тип расписания (weekly, custom)")

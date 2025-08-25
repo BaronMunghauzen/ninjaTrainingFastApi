@@ -23,6 +23,11 @@ class ExerciseGroupDAO(BaseDAO):
                 joinedload(cls.model.image),
                 joinedload(cls.model.training).joinedload(Training.image)
             ).filter_by(uuid=object_uuid)
+            
+            # Добавляем сортировку по полю order
+            if hasattr(cls.model, 'order'):
+                query = query.order_by(cls.model.order.asc())
+            
             result = await session.execute(query)
             result = result.unique()
             object_info = result.scalar_one_or_none()
@@ -31,6 +36,9 @@ class ExerciseGroupDAO(BaseDAO):
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Объект {cls.model.__name__} с ID {object_uuid} не найден"
                 )
+            
+            # Отключаем только основной объект от сессии, оставляем связанные объекты
+            session.expunge(object_info)
             return object_info
 
     @classmethod
@@ -49,7 +57,17 @@ class ExerciseGroupDAO(BaseDAO):
                 joinedload(cls.model.image),
                 joinedload(cls.model.training).joinedload(Training.image)
             ).filter_by(**filters)
+            
+            # Добавляем сортировку по полю order
+            if hasattr(cls.model, 'order'):
+                query = query.order_by(cls.model.order.asc())
+            
             result = await session.execute(query)
             result = result.unique()
             objects = result.scalars().all()
+            
+            # Отключаем только основные объекты от сессии, оставляем связанные объекты
+            for obj in objects:
+                session.expunge(obj)
+            
             return objects 

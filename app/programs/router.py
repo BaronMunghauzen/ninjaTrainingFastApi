@@ -15,28 +15,24 @@ router = APIRouter(prefix='/programs', tags=['Работа с программа
 
 @router.get("/", summary="Получить все программы")
 async def get_all_programs(request_body: RBProgram = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
-    programs = await ProgramDAO.find_all(**request_body.to_dict())
-    # Получаем все category_id и user_id из программ
-    category_ids = {p.category_id for p in programs}
-    user_ids = {p.user_id for p in programs if p.user_id is not None}
-    categories = await CategoryDAO.find_in('id', list(category_ids)) if category_ids else []
-    users = await UsersDAO.find_in('id', list(user_ids)) if user_ids else []
-    id_to_category = {c.id: c.to_dict() for c in categories}
-    id_to_user = {u.id: await u.to_dict() for u in users}
+    # Используем оптимизированный метод вместо find_all
+    programs = await ProgramDAO.find_all_with_categories_and_users(**request_body.to_dict())
+    
+    # Обрабатываем результат, убирая лишние поля
     result = []
     for p in programs:
-        data = p.to_dict()
+        # Создаем копию, чтобы не изменять оригинальный объект
+        program_data = p.copy()
+        
         # Удаляем id и uuid поля
-        data.pop('category_id', None)
-        data.pop('user_id', None)
-        data.pop('category_uuid', None)
-        data.pop('user_uuid', None)
-        data.pop('schedule_type', None)
+        program_data.pop('category_id', None)
+        program_data.pop('user_id', None)
+        program_data.pop('category_uuid', None)
+        program_data.pop('user_uuid', None)
+        program_data.pop('schedule_type', None)
         # training_days теперь возвращаем
-        # Добавляем вложенные объекты
-        data['category'] = id_to_category.get(p.category_id)
-        data['user'] = id_to_user.get(p.user_id) if p.user_id else None
-        result.append(data)
+        result.append(program_data)
+    
     return result
 
 
@@ -62,11 +58,17 @@ async def get_program_by_id(program_uuid: UUID, user_data = Depends(get_current_
 @router.post("/add/")
 async def add_program(program: SProgramAdd, user_data = Depends(get_current_admin_user)) -> dict:
     values = program.model_dump()
-    # Получаем category_id по category_uuid
-    category = await CategoryDAO.find_one_or_none(uuid=values.pop('category_uuid'))
-    if not category:
-        raise HTTPException(status_code=404, detail="Категория не найдена")
-    values['category_id'] = category.id
+    
+    # Обрабатываем category_uuid только если он указан
+    category_id = None
+    if values.get('category_uuid'):
+        category = await CategoryDAO.find_one_or_none(uuid=values.pop('category_uuid'))
+        if not category:
+            raise HTTPException(status_code=404, detail="Категория не найдена")
+        category_id = category.id
+    # Удаляем category_uuid в любом случае
+    values.pop('category_uuid', None)
+    values['category_id'] = category_id
 
     # Аналогично для user_uuid, если нужно
     user_id = None
@@ -89,10 +91,12 @@ async def add_program(program: SProgramAdd, user_data = Depends(get_current_admi
         values['image_id'] = image.id
     # Удаляю image_uuid если вдруг остался
     values.pop('image_uuid', None)
+    
     program_uuid = await ProgramDAO.add(**values)
     program_obj = await ProgramDAO.find_full_data(program_uuid)
+    
     # Формируем ответ как в get_program_by_id
-    category = await CategoryDAO.find_one_or_none(id=program_obj.category_id)
+    category = await CategoryDAO.find_one_or_none(id=program_obj.category_id) if program_obj.category_id else None
     user = await UsersDAO.find_one_or_none(id=program_obj.user_id) if program_obj.user_id else None
     data = program_obj.to_dict()
     data.pop('category_id', None)
