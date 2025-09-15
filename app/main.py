@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from app.users.router import router as router_users
 from app.categories.router import router as router_categories
@@ -15,6 +16,8 @@ from app.files.router import router as router_files
 from app.exercise_reference.router import router as exercise_reference_router
 from app.services.router import router as router_services
 from app.achievements.router import router as router_achievements
+from app.password_reset.router import router as router_password_reset
+from app.user_measurements.router import router as router_user_measurements
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -118,3 +121,8 @@ app.include_router(router_files)
 app.include_router(exercise_reference_router)
 app.include_router(router_services)
 app.include_router(router_achievements)
+app.include_router(router_password_reset)
+app.include_router(router_user_measurements)
+
+# Подключаем статические файлы
+app.mount("/static", StaticFiles(directory="static"), name="static")

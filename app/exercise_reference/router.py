@@ -1,8 +1,9 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from app.exercise_reference.dao import ExerciseReferenceDAO
+from app.exercise_reference.models import ExerciseReference
 from app.exercise_reference.rb import RBExerciseReference
-from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate, SPaginationResponse
+from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate, SPaginationResponse, SExerciseStatistics
 from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.files.dao import FilesDAO
 from app.files.service import FileService
@@ -181,6 +182,13 @@ async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = De
             raise HTTPException(status_code=404, detail="Видео не найдено")
         values['video_id'] = video.id
     values.pop('video_uuid', None)
+    # Обработка gif_uuid
+    if values.get('gif_uuid'):
+        gif = await FilesDAO.find_one_or_none(uuid=values['gif_uuid'])
+        if not gif:
+            raise HTTPException(status_code=404, detail="Гифка не найдена")
+        values['gif_id'] = gif.id
+    values.pop('gif_uuid', None)
     # Обработка user_uuid
     if values.get('user_uuid'):
         user = await UsersDAO.find_one_or_none(uuid=values['user_uuid'])
@@ -195,6 +203,17 @@ async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = De
 @router.put('/update/{exercise_reference_uuid}', summary='Обновить упражнение справочника')
 async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SExerciseReferenceUpdate, user_data = Depends(get_current_admin_user)) -> dict:
     update_data = exercise.model_dump(exclude_unset=True)
+    
+    # Специальная обработка для technique_description - фиксируем факт присутствия поля и его значение
+    raw_data = exercise.model_dump()
+    technique_description_present = 'technique_description' in raw_data
+    technique_description_value = raw_data.get('technique_description', None)
+    
+    # Отладочная информация
+    print(f"DEBUG: raw_data = {raw_data}")
+    print(f"DEBUG: update_data before = {update_data}")
+    print(f"DEBUG: technique_description_present = {technique_description_present}, value = {technique_description_value}")
+    
     # Обработка image_uuid
     if 'image_uuid' in update_data:
         image_uuid = update_data.pop('image_uuid')
@@ -215,6 +234,16 @@ async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SEx
             update_data['video_id'] = video.id
         else:
             update_data['video_id'] = None
+    # Обработка gif_uuid
+    if 'gif_uuid' in update_data:
+        gif_uuid = update_data.pop('gif_uuid')
+        if gif_uuid:
+            gif = await FilesDAO.find_one_or_none(uuid=gif_uuid)
+            if not gif:
+                raise HTTPException(status_code=404, detail="Гифка не найдена")
+            update_data['gif_id'] = gif.id
+        else:
+            update_data['gif_id'] = None
     # Обработка user_uuid
     if 'user_uuid' in update_data:
         user_uuid = update_data.pop('user_uuid')
@@ -226,7 +255,23 @@ async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SEx
         else:
             update_data['user_id'] = None
     check = await ExerciseReferenceDAO.update(exercise_reference_uuid, **update_data)
-    if check:
+    
+    # Специальная обработка для technique_description - обновляем напрямую в БД, если поле присутствовало в запросе
+    if technique_description_present:
+        from sqlalchemy import update as sqlalchemy_update
+        from app.database import async_session_maker
+        async with async_session_maker() as session:
+            async with session.begin():
+                query = (
+                    sqlalchemy_update(ExerciseReference)
+                    .where(ExerciseReference.uuid == exercise_reference_uuid)
+                    .values(technique_description=technique_description_value)
+                )
+                await session.execute(query)
+                await session.commit()
+                print(f"DEBUG: technique_description обновлен напрямую в БД: {technique_description_value}")
+    
+    if check or technique_description_present:
         updated_exercise = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
         return updated_exercise.to_dict()
     else:
@@ -348,4 +393,133 @@ async def delete_exercise_reference_video(
         # Если удаление файла не удалось, возвращаем ошибку
         raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
     
-    return {"message": "Видео успешно удалено"} 
+    return {"message": "Видео успешно удалено"}
+
+@router.post('/{exercise_reference_uuid}/upload-gif', summary='Загрузить гифку для справочника упражнения')
+async def upload_exercise_reference_gif(
+    exercise_reference_uuid: UUID,
+    file: UploadFile = File(...),
+    user_data = Depends(get_current_admin_user)
+):
+    print(f"Начинаем загрузку гифки для exercise_reference: {exercise_reference_uuid}")
+    
+    exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+    if not exercise_reference:
+        raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    print(f"Найден exercise_reference: {exercise_reference.id}")
+    old_file_uuid = getattr(exercise_reference.gif, 'uuid', None)
+    print(f"Старый файл UUID: {old_file_uuid}")
+    
+    print("Вызываем FileService.save_file...")
+    saved_file = await FileService.save_file(
+        file=file,
+        entity_type="exercise_reference",
+        entity_id=exercise_reference.id,
+        old_file_uuid=str(old_file_uuid) if old_file_uuid else None
+    )
+    print(f"Файл сохранен, UUID: {saved_file.uuid}")
+    
+    print("Обновляем exercise_reference...")
+    await ExerciseReferenceDAO.update(exercise_reference_uuid, gif_id=saved_file.id)
+    print("Exercise_reference обновлен")
+    
+    return {"message": "Гифка успешно загружена", "gif_uuid": saved_file.uuid}
+
+@router.delete('/{exercise_reference_uuid}/delete-gif', summary='Удалить гифку справочника упражнения')
+async def delete_exercise_reference_gif(
+    exercise_reference_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+):
+    exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+    if not exercise_reference:
+        raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    if not exercise_reference.gif:
+        raise HTTPException(status_code=404, detail="Гифка не найдена")
+    
+    gif_uuid = exercise_reference.gif.uuid
+    # Сначала обновляем ссылку в exercise_reference напрямую в БД
+    from sqlalchemy import update as sqlalchemy_update
+    from app.database import async_session_maker
+    async with async_session_maker() as session:
+        async with session.begin():
+            query = (
+                sqlalchemy_update(ExerciseReference)
+                .where(ExerciseReference.uuid == exercise_reference_uuid)
+                .values(gif_id=None)
+            )
+            await session.execute(query)
+            await session.commit()
+            print(f"DEBUG: gif_id обновлен на NULL в БД")
+    
+    # Потом удаляем файл
+    try:
+        await FileService.delete_file_by_uuid(str(gif_uuid))
+    except Exception as e:
+        # Если удаление файла не удалось, возвращаем ошибку
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+    
+    return {"message": "Гифка успешно удалена"}
+
+@router.get('/{exercise_reference_uuid}/statistics/{user_uuid}', summary='Получить статистику выполнения упражнения для пользователя')
+async def get_exercise_statistics(
+    exercise_reference_uuid: UUID,
+    user_uuid: UUID,
+    user_data = Depends(get_current_user_user)
+) -> SExerciseStatistics:
+    """
+    Получить статистику выполнения упражнения для конкретного пользователя.
+    Возвращает историю выполнения упражнения с записями из таблицы user_exercise,
+    где status = PASSED, сгруппированную по дням в порядке от новых к старым.
+    """
+    # Проверяем права доступа - пользователь может получить статистику только для себя
+    if str(user_uuid) != str(user_data.uuid):
+        raise HTTPException(status_code=403, detail="Вы можете получить статистику только для своего профиля")
+    
+    statistics = await ExerciseReferenceDAO.get_exercise_statistics(exercise_reference_uuid, user_uuid)
+    if statistics is None:
+        raise HTTPException(status_code=404, detail="Упражнение или пользователь не найдены")
+    
+    return SExerciseStatistics(**statistics)
+
+
+@router.get('/passed/', summary='Получить упражнения с выполненными записями')
+async def get_passed_exercise_references(
+    caption: str = Query(None, description="Поиск по названию упражнения (без учета регистра, частичное совпадение)"),
+    user_data = Depends(get_current_user_user)
+) -> list[dict]:
+    """
+    Получить уникальные упражнения из exercise_reference, 
+    по которым есть записи в user_exercise со статусом PASSED
+    """
+    try:
+        exercises = await ExerciseReferenceDAO.find_passed_exercises(caption=caption)
+        
+        if not exercises:
+            return []
+        
+        result = []
+        for exercise in exercises:
+            try:
+                # Формируем упрощенный ответ с только нужными полями
+                data = {
+                    'uuid': str(exercise.uuid),
+                    'caption': exercise.caption,
+                    'description': exercise.description,
+                    'muscle_group': exercise.muscle_group,
+                    'gif_uuid': str(exercise.gif.uuid) if exercise.gif else None
+                }
+                
+                result.append(data)
+            except Exception as ex:
+                print(f"Ошибка при обработке упражнения {exercise.id}: {ex}")
+                continue
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при получении упражнений: {str(e)}"
+        ) 

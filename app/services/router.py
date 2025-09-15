@@ -7,6 +7,8 @@ from app.exercise_reference.dao import ExerciseReferenceDAO
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
 from app.users.dao import UsersDAO
+from app.services.schemas import SupportRequestCreate, SupportRequestResponse
+from app.email_service import email_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -79,4 +81,61 @@ async def search_all(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при выполнении поиска: {str(e)}"
+        )
+
+
+@router.post("/support-request/", response_model=SupportRequestResponse)
+async def create_support_request(
+    request_data: SupportRequestCreate,
+    current_user: User = Depends(get_current_user_user)
+):
+    """Отправить обращение в службу поддержки"""
+    
+    # Проверяем права доступа
+    if str(current_user.uuid) != str(request_data.user_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Вы можете отправлять обращения только от своего имени"
+        )
+    
+    if not current_user.is_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+    
+    # Получаем данные пользователя
+    user = await UsersDAO.find_full_data(request_data.user_uuid)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь не найден"
+        )
+    
+    # Формируем имя пользователя
+    user_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    if not user_name:
+        user_name = user.login
+    
+    try:
+        # Отправляем письмо
+        await email_service.send_support_request(
+            user_email=user.email,
+            user_name=user_name,
+            request_type=request_data.request_type,
+            message=request_data.message
+        )
+        
+        logger.info(f"Обращение успешно отправлено от пользователя {user.email}")
+        
+        return SupportRequestResponse(
+            success=True,
+            message="Ваше обращение успешно отправлено в службу поддержки"
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при отправке обращения: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при отправке обращения: {str(e)}"
         ) 

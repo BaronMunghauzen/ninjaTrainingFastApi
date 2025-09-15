@@ -70,27 +70,23 @@ class EmailService:
             logger.error(f"Тип ошибки: {type(e).__name__}")
             raise e
 
-    async def send_password_reset_email(self, email: str, token: str, base_url: str = None):
-        """Отправить email для сброса пароля"""
-        logger.info(f"Попытка отправить email сброса пароля на: {email}")
-        
-        if base_url is None:
-            base_url = settings.BASE_URL
-            
-        reset_url = f"{base_url}/auth/reset-password?token={token}"
+    async def send_password_reset_code(self, email: str, code: str, base_url: str = None):
+        """Отправить email с кодом для сброса пароля"""
+        logger.info(f"Попытка отправить email с кодом сброса пароля на: {email}")
         
         message = MessageSchema(
-            subject="Сброс пароля",
+            subject="Код для сброса пароля",
             recipients=[email],
             body=f"""
             <html>
             <body>
                 <h1>Сброс пароля</h1>
-                <p>Для сброса пароля перейдите по ссылке ниже:</p>
-                <p><a href="{reset_url}" style="background-color: #4CAF50; color: white; padding: 14px 20px; text-decoration: none; border-radius: 4px;">Сбросить пароль</a></p>
-                <p>Или скопируйте эту ссылку в браузер:</p>
-                <p>{reset_url}</p>
-                <p>Ссылка действительна в течение 1 часа.</p>
+                <p>Ваш код для сброса пароля:</p>
+                <div style="background-color: #f4f4f4; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px;">
+                    <h2 style="color: #333; font-size: 32px; letter-spacing: 5px; margin: 0;">{code}</h2>
+                </div>
+                <p>Введите этот код в приложении для сброса пароля.</p>
+                <p>Код действителен в течение 10 минут.</p>
                 <p>Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.</p>
             </body>
             </html>
@@ -99,11 +95,53 @@ class EmailService:
         )
         
         try:
-            logger.info("Отправка email сброса пароля...")
+            logger.info("Отправка email с кодом сброса пароля...")
             await self.fm.send_message(message)
-            logger.info(f"Email сброса пароля успешно отправлен на {email}")
+            logger.info(f"Email с кодом сброса пароля успешно отправлен на {email}")
         except Exception as e:
-            logger.error(f"Ошибка отправки email сброса пароля на {email}: {str(e)}")
+            logger.error(f"Ошибка отправки email с кодом сброса пароля на {email}: {str(e)}")
+            raise e
+
+    async def send_support_request(self, user_email: str, user_name: str, request_type: str, message: str):
+        """Отправить email с обращением пользователя в службу поддержки"""
+        logger.info(f"Попытка отправить обращение от пользователя {user_email}")
+        
+        # Отправляем письмо на свой же адрес (MAIL_FROM)
+        message_content = MessageSchema(
+            subject="Новое обращение от пользователя NinjaTraining",
+            recipients=[settings.MAIL_FROM],
+            body=f"""
+            <html>
+            <body>
+                <h1>Новое обращение от пользователя NinjaTraining</h1>
+                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h2>Информация о пользователе:</h2>
+                    <p><strong>Email:</strong> {user_email}</p>
+                    <p><strong>Имя:</strong> {user_name}</p>
+                </div>
+                <div style="background-color: #e9ecef; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h2>Детали обращения:</h2>
+                    <p><strong>Тип обращения:</strong> {request_type}</p>
+                    <p><strong>Сообщение:</strong></p>
+                    <div style="background-color: white; padding: 15px; border-left: 4px solid #007bff; margin: 10px 0;">
+                        {message.replace(chr(10), '<br>')}
+                    </div>
+                </div>
+                <p style="color: #6c757d; font-size: 12px; margin-top: 30px;">
+                    Это письмо было отправлено автоматически через форму обратной связи NinjaTraining.
+                </p>
+            </body>
+            </html>
+            """,
+            subtype="html"
+        )
+        
+        try:
+            logger.info("Отправка обращения в службу поддержки...")
+            await self.fm.send_message(message_content)
+            logger.info(f"Обращение успешно отправлено от пользователя {user_email}")
+        except Exception as e:
+            logger.error(f"Ошибка отправки обращения от пользователя {user_email}: {str(e)}")
             raise e
 
 

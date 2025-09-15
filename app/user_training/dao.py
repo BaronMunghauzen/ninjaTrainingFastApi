@@ -36,9 +36,9 @@ class UserTrainingDAO(BaseDAO):
         async with async_session_maker() as session:
             query = select(cls.model)
             if user_program_id is not None:
-                query = query.filter_by(user_program_id=user_program_id, status='active')
+                query = query.filter_by(user_program_id=user_program_id, status='ACTIVE')
             else:
-                query = query.filter_by(status='active')
+                query = query.filter_by(status='ACTIVE')
             result = await session.execute(query)
             return result.scalars().all()
 

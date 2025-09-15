@@ -18,9 +18,31 @@ router = APIRouter(prefix='/user_programs', tags=['Работа с пользо�
 
 @router.get("/", summary="Получить все пользовательские программы")
 async def get_all_user_programs(request_body: RBUserProgram = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
-    # Используем оптимизированный метод вместо find_all + N+1 запросов
-    result = await UserProgramDAO.find_all_with_programs_and_users(**request_body.to_dict())
-    return result
+    # Используем существующий метод find_all
+    result = await UserProgramDAO.find_all(**request_body.to_dict())
+    
+    # Преобразуем объекты UserProgram в словари
+    user_programs_list = []
+    for user_program in result:
+        # Получаем связанные объекты для полных данных
+        program = await ProgramDAO.find_by_id_with_image(user_program.program_id) if user_program.program_id else None
+        user = await UsersDAO.find_one_or_none(id=user_program.user_id) if user_program.user_id else None
+        
+        user_program_dict = {
+            "uuid": str(user_program.uuid),
+            "caption": user_program.caption,
+            "status": user_program.status,
+            "stopped_at": user_program.stopped_at.isoformat() if user_program.stopped_at else None,
+            "stage": user_program.stage,
+            "schedule_type": user_program.schedule_type,
+            "training_days": user_program.training_days,
+            "start_date": user_program.start_date.isoformat() if user_program.start_date else None,
+            "program": program.to_dict() if program else None,
+            "user": await user.to_dict() if user else None
+        }
+        user_programs_list.append(user_program_dict)
+    
+    return user_programs_list
 
 
 @router.get("/{user_program_uuid}", summary="Получить одну пользовательскую программу по id")
@@ -50,8 +72,8 @@ async def get_user_program_by_id(user_program_uuid: UUID, user_data = Depends(ge
 async def add_user_program(user_program: SUserProgramAdd, user_data = Depends(get_current_user_user)) -> dict:
     values = user_program.model_dump()
     
-    # Получаем program_id по program_uuid
-    program = await ProgramDAO.find_one_or_none(uuid=values.pop('program_uuid'))
+    # Получаем program_id по program_uuid с предзагрузкой связанных данных
+    program = await ProgramDAO.find_full_data(values.pop('program_uuid'))
     if not program:
         raise HTTPException(status_code=404, detail="Программа не найдена")
     values['program_id'] = program.id
@@ -104,8 +126,8 @@ async def add_user_program(user_program: SUserProgramAdd, user_data = Depends(ge
                 
                 if program_day in training_days:
                     training = trainings[trainings_count % len(trainings)]
-                    # Статус: 'active' если дата совпадает с today, иначе 'blocked_yet'
-                    status = 'active' if current_date == today else 'blocked_yet'
+                    # Статус: 'ACTIVE' если дата совпадает с today, иначе 'BLOCKED_YET'
+                    status = 'ACTIVE' if current_date == today else 'BLOCKED_YET'
                     user_training_data = {
                         'user_program_id': user_program_obj.id,
                         'program_id': program.id,
@@ -119,8 +141,8 @@ async def add_user_program(user_program: SUserProgramAdd, user_data = Depends(ge
                     }
                     trainings_count += 1
                 else:
-                    # Статус: 'active' если дата совпадает с today (даже для дней отдыха), иначе 'blocked_yet'
-                    status = 'active' if current_date == today else 'blocked_yet'
+                    # Статус: 'ACTIVE' если дата совпадает с today (даже для дней отдыха), иначе 'BLOCKED_YET'
+                    status = 'ACTIVE' if current_date == today else 'BLOCKED_YET'
                     user_training_data = {
                         'user_program_id': user_program_obj.id,
                         'program_id': program.id,
@@ -199,7 +221,7 @@ async def update_user_program(user_program_uuid: UUID, user_program: SUserProgra
         data.pop('user_id', None)
         data.pop('program_uuid', None)
         data.pop('user_uuid', None)
-        data['program'] = await program.to_dict() if program else None
+        data['program'] = program.to_dict() if program else None
         data['user'] = await user.to_dict() if user else None
         return data
     else:

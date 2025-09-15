@@ -125,8 +125,8 @@ class ScheduleGenerator:
             week = (i // 7) + 1
             if program_day in training_days:
                 training = next_stage_trainings[trainings_count % len(next_stage_trainings)]
-                # Статус: 'active' если дата совпадает с today, иначе 'blocked_yet'
-                status = 'active' if current_date == today else 'blocked_yet'
+                # Статус: 'ACTIVE' если дата совпадает с today, иначе 'BLOCKED_YET'
+                status = 'ACTIVE' if current_date == today else 'BLOCKED_YET'
                 user_training_data = {
                     'user_program_id': user_program_id,
                     'program_id': program_id,
@@ -141,8 +141,8 @@ class ScheduleGenerator:
                 }
                 trainings_count += 1
             else:
-                # Статус: 'active' если дата совпадает с today (даже для выходных), иначе 'blocked_yet'
-                status = 'active' if current_date == today else 'blocked_yet'
+                # Статус: 'ACTIVE' если дата совпадает с today (даже для выходных), иначе 'BLOCKED_YET'
+                status = 'ACTIVE' if current_date == today else 'BLOCKED_YET'
                 user_training_data = {
                     'user_program_id': user_program_id,
                     'program_id': program_id,

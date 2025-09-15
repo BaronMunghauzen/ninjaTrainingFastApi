@@ -70,7 +70,7 @@ class Program(Base):
         return {
             "uuid": str(self.uuid),
             "actual": self.actual,
-            "category_uuid": str(self.category.uuid) if hasattr(self, 'category') and self.category and hasattr(self.category, 'uuid') else None,
+            "category_uuid": None,  # Не загружаем category в базовом to_dict
             "program_type": self.program_type,
             "caption": self.caption,
             "description": self.description,

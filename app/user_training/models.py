@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Literal
 
 from sqlalchemy import ForeignKey, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,10 +15,13 @@ if TYPE_CHECKING:
 
 
 class TrainingStatus(str, Enum):
-    PASSED = 'passed'
-    SKIPPED = 'skipped'
-    ACTIVE = 'active'
-    BLOCKED_YET = 'blocked_yet'
+    PASSED = 'PASSED'
+    SKIPPED = 'SKIPPED'
+    ACTIVE = 'ACTIVE'
+    BLOCKED_YET = 'BLOCKED_YET'
+    
+    def __str__(self):
+        return self.value
 
 # создаем модель таблицы тренировок
 class UserTraining(Base):

@@ -50,3 +50,15 @@ class STrainingUpdate(BaseModel):
     stage: Optional[int] = Field(None, ge=1, description="Этап тренировки")
     image_uuid: Optional[str] = Field(None, description="UUID изображения")
     actual: Optional[bool] = Field(False, description="Актуальная тренировка")
+
+
+class STrainingArchiveResponse(BaseModel):
+    message: str = Field(..., description="Сообщение о результате операции")
+    training_uuid: str = Field(..., description="UUID тренировки")
+    actual: bool = Field(..., description="Статус актуальности тренировки")
+
+
+class STrainingRestoreResponse(BaseModel):
+    message: str = Field(..., description="Сообщение о результате операции")
+    training_uuid: str = Field(..., description="UUID тренировки")
+    actual: bool = Field(..., description="Статус актуальности тренировки")

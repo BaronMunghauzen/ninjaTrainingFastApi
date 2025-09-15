@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from app.user_exercises.models import UserExercise
     from app.files.models import File
     from app.achievements.models import Achievement
+    from app.password_reset.models import PasswordResetCode
+    from app.user_measurements.models import UserMeasurementType, UserMeasurement
 
 
 class GenderEnum(str, Enum):
@@ -82,6 +84,15 @@ class User(Base):
 
     # Определяем отношения с файлами (аватар) - исправляем конфликт
     avatar: Mapped[Optional["File"]] = relationship("File")
+    
+    # Определяем отношения с кодами сброса пароля
+    password_reset_codes: Mapped[list["PasswordResetCode"]] = relationship("PasswordResetCode", back_populates="user")
+    
+    # Определяем отношения с типами измерений
+    measurement_types: Mapped[list["UserMeasurementType"]] = relationship("UserMeasurementType", back_populates="user")
+    
+    # Определяем отношения с измерениями
+    measurements: Mapped[list["UserMeasurement"]] = relationship("UserMeasurement", back_populates="user")
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id})"

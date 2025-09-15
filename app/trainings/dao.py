@@ -154,3 +154,49 @@ class TrainingDAO(BaseDAO):
             # Отключаем объект от сессии, чтобы избежать проблем с lazy loading
             session.expunge(object_info)
             return object_info
+
+    @classmethod
+    async def archive_training(cls, training_uuid: UUID):
+        """
+        Архивировать тренировку (установить actual = False)
+        """
+        async with async_session_maker() as session:
+            query = select(cls.model).filter_by(uuid=training_uuid)
+            result = await session.execute(query)
+            training = result.scalar_one_or_none()
+            
+            if not training:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Тренировка с UUID {training_uuid} не найдена"
+                )
+            
+            training.actual = False
+            await session.commit()
+            
+            # Отключаем объект от сессии
+            session.expunge(training)
+            return training
+
+    @classmethod
+    async def restore_training(cls, training_uuid: UUID):
+        """
+        Восстановить тренировку из архива (установить actual = True)
+        """
+        async with async_session_maker() as session:
+            query = select(cls.model).filter_by(uuid=training_uuid)
+            result = await session.execute(query)
+            training = result.scalar_one_or_none()
+            
+            if not training:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Тренировка с UUID {training_uuid} не найдена"
+                )
+            
+            training.actual = True
+            await session.commit()
+            
+            # Отключаем объект от сессии
+            session.expunge(training)
+            return training

@@ -1,4 +1,8 @@
 from app.user_training.models import TrainingStatus
+from typing import Literal
+
+# Определяем Literal тип для правильного отображения в Swagger
+TrainingStatusLiteral = Literal["PASSED", "SKIPPED", "ACTIVE", "BLOCKED_YET"]
 
 class RBUserTraining:
     def __init__(self, user_training_uuid: str | None = None,
@@ -7,7 +11,8 @@ class RBUserTraining:
                  training_uuid: str | None = None,
                  user_uuid: str | None = None,
                  training_date: str | None = None,
-                 status: TrainingStatus | None = None):
+                 status: TrainingStatusLiteral | None = None,
+                 is_rest_day: bool | None = None):
         self.uuid = user_training_uuid
         self.user_program_uuid = user_program_uuid
         self.program_uuid = program_uuid
@@ -15,6 +20,7 @@ class RBUserTraining:
         self.user_uuid = user_uuid
         self.training_date = training_date
         self.status = status
+        self.is_rest_day = is_rest_day
 
     def to_dict(self) -> dict:
         data = {
@@ -24,7 +30,8 @@ class RBUserTraining:
             'training_uuid': self.training_uuid,
             'user_uuid': self.user_uuid,
             'training_date': self.training_date,
-            'status': self.status
+            'status': self.status,
+            'is_rest_day': self.is_rest_day
         }
         filtered_data = {key: value for key, value in data.items() if value is not None}
         return filtered_data

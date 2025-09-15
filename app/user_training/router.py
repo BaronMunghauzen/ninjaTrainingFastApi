@@ -39,9 +39,9 @@ async def activate_next_training(user_training):
             next_training = sorted_trainings[current_index + 1]
             
             # Проверяем, что следующая тренировка в статусе BLOCKED_YET
-            if next_training.status.value == 'blocked_yet':
+            if next_training.status.value == 'BLOCKED_YET':
                 # Активируем следующую тренировку
-                await UserTrainingDAO.update(next_training.uuid, status='active')
+                await UserTrainingDAO.update(next_training.uuid, status='ACTIVE')
                 return True, next_training
         
         return False, None
@@ -56,10 +56,10 @@ async def create_next_stage_if_needed(user_training):
     try:
         print(f"[DEBUG] Проверка завершения этапа для user_program_id={user_training.user_program_id}")
         # 1. Проверяем, есть ли активные тренировочные дни (is_rest_day=False)
-        active_trainings = await UserTrainingDAO.find_all(user_program_id=user_training.user_program_id, status='active', is_rest_day=False)
+        active_trainings = await UserTrainingDAO.find_all(user_program_id=user_training.user_program_id, status='ACTIVE', is_rest_day=False)
         print(f"[DEBUG] Найдено активных тренировочных дней (is_rest_day=False): {len(active_trainings)}")
         # 2. Проверяем, есть ли вообще активные user_training (включая rest day)
-        active_any = await UserTrainingDAO.find_all(user_program_id=user_training.user_program_id, status='active')
+        active_any = await UserTrainingDAO.find_all(user_program_id=user_training.user_program_id, status='ACTIVE')
         print(f"[DEBUG] Найдено всех активных user_training: {len(active_any)}")
         # Если нет ни одной активной тренировки (is_rest_day=False) и ни одной вообще активной user_training (rest day), создаём следующий этап
         if not active_trainings and not active_any:
@@ -72,11 +72,11 @@ async def create_next_stage_if_needed(user_training):
                 return False, None
             # Переводим все blocked_yet тренировки (только не rest day) в passed
             print(f"[DEBUG] Пытаюсь найти blocked_yet тренировки для user_program_id={user_training.user_program_id}")
-            blocked_trainings = await UserTrainingDAO.find_all(user_program_id=user_training.user_program_id, status='blocked_yet', is_rest_day=False)
+            blocked_trainings = await UserTrainingDAO.find_all(user_program_id=user_training.user_program_id, status='BLOCKED_YET', is_rest_day=False)
             print(f"[DEBUG] blocked_yet тренировок для завершения (is_rest_day=False): {len(blocked_trainings)}")
             for bt in blocked_trainings:
                 print(f"[DEBUG] Перевожу тренировку {bt.uuid} в passed")
-                await UserTrainingDAO.update(bt.uuid, status='passed')
+                await UserTrainingDAO.update(bt.uuid, status='PASSED')
             print(f"[DEBUG] Перевожу user_program {user_program.uuid} в finished")
             await UserProgramDAO.update(user_program.uuid, status='finished', stopped_at=datetime.now())
             current_stage = user_program.stage
@@ -91,7 +91,7 @@ async def create_next_stage_if_needed(user_training):
                 'program_id': user_program.program_id,
                 'user_id': user_program.user_id,
                 'caption': user_program.caption,
-                'status': 'active',
+                'status': 'ACTIVE',
                 'stage': new_stage,
                 'schedule_type': user_program.schedule_type,
                 'training_days': user_program.training_days,
@@ -120,7 +120,7 @@ async def create_next_stage_if_needed(user_training):
             user_trainings_new = await UserTrainingDAO.find_all(user_program_id=new_user_program.id)
             print(f"[DEBUG] Количество тренировок в новом расписании: {len(user_trainings_new)}")
             for ut in sorted(user_trainings_new, key=lambda x: x.training_date):
-                if hasattr(ut, 'status') and ut.status.value.lower() == 'active' and not getattr(ut, 'is_rest_day', False):
+                if hasattr(ut, 'status') and ut.status.value == 'ACTIVE' and not getattr(ut, 'is_rest_day', False):
                     first_training = ut
                     break
             print(f"[DEBUG] Первая активная тренировка: {getattr(first_training, 'uuid', None)}")
@@ -142,13 +142,18 @@ async def get_all_user_trainings(
     request_body: RBUserTraining = Depends(), 
     user_data = Depends(get_current_user_user),
     page: int = Query(1, ge=1, description="Номер страницы"),
-    page_size: int = Query(50, ge=1, le=100, description="Размер страницы")
+    page_size: int = Query(50, ge=1, le=100, description="Размер страницы"),
+    is_rest_day: bool = Query(None, description="Фильтр по дню отдыха (true/false)")
 ) -> dict:
     # Используем оптимизированный метод с полными связанными данными
+    filters = request_body.to_dict()
+    if is_rest_day is not None:
+        filters['is_rest_day'] = is_rest_day
+    
     result, total_count = await UserTrainingDAO.find_all_with_full_relations_paginated(
         page=page, 
         page_size=page_size, 
-        **request_body.to_dict()
+        **filters
     )
     
     return {
@@ -244,7 +249,7 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
                 values['stage'] = training.stage
 
     # Фильтруем только те поля, которые есть в модели UserTraining
-    valid_fields = {'user_program_id', 'program_id', 'training_id', 'user_id', 'training_date', 'status', 'stage'}
+    valid_fields = {'user_program_id', 'program_id', 'training_id', 'user_id', 'training_date', 'status', 'stage', 'is_rest_day', 'week', 'weekday'}
     filtered_values = {k: v for k, v in values.items() if k in valid_fields}
 
     user_training_uuid = await UserTrainingDAO.add(**filtered_values)
@@ -356,13 +361,13 @@ async def pass_user_training(user_training_uuid: UUID, user_data = Depends(get_c
         raise HTTPException(status_code=404, detail="Пользовательская тренировка не найдена")
     
     # Проверяем, что тренировка в активном статусе
-    if user_training.status.value.lower() != 'active':
+    if user_training.status.value != 'ACTIVE':
         raise HTTPException(status_code=400, detail=f"Тренировка уже имеет статус {user_training.status.value}")
     
     # Обновляем статус на PASSED и заполняем completed_at
     current_time = datetime.now()
     update_data = {
-        'status': 'passed',
+        'status': 'PASSED',
         'completed_at': current_time
     }
     
@@ -415,13 +420,13 @@ async def skip_user_training(user_training_uuid: UUID, user_data = Depends(get_c
         raise HTTPException(status_code=404, detail="Пользовательская тренировка не найдена")
     
     # Проверяем, что тренировка в активном статусе
-    if user_training.status.value.lower() != 'active':
+    if user_training.status.value != 'ACTIVE':
         raise HTTPException(status_code=400, detail=f"Тренировка уже имеет статус {user_training.status.value}")
     
     # Обновляем статус на SKIPPED и заполняем skipped_at
     current_time = datetime.now()
     update_data = {
-        'status': 'skipped',
+        'status': 'SKIPPED',
         'skipped_at': current_time
     }
     

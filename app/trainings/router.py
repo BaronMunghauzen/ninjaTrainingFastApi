@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from app.trainings.dao import TrainingDAO
 from app.trainings.rb import RBTraining
-from app.trainings.schemas import STraining, STrainingAdd, STrainingUpdate
+from app.trainings.schemas import STraining, STrainingAdd, STrainingUpdate, STrainingArchiveResponse, STrainingRestoreResponse
 from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.programs.dao import ProgramDAO
 from app.users.dao import UsersDAO
@@ -302,3 +302,37 @@ async def delete_training_image(
         raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
     
     return {"message": "Изображение успешно удалено"}
+
+
+@router.post("/{training_uuid}/archive", summary="Архивировать тренировку", response_model=STrainingArchiveResponse)
+async def archive_training(
+    training_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+) -> STrainingArchiveResponse:
+    """
+    Архивировать тренировку (установить actual = False)
+    """
+    archived_training = await TrainingDAO.archive_training(training_uuid)
+    
+    return STrainingArchiveResponse(
+        message=f"Тренировка {training_uuid} успешно заархивирована",
+        training_uuid=str(archived_training.uuid),
+        actual=archived_training.actual
+    )
+
+
+@router.post("/{training_uuid}/restore", summary="Восстановить тренировку из архива", response_model=STrainingRestoreResponse)
+async def restore_training(
+    training_uuid: UUID,
+    user_data = Depends(get_current_admin_user)
+) -> STrainingRestoreResponse:
+    """
+    Восстановить тренировку из архива (установить actual = True)
+    """
+    restored_training = await TrainingDAO.restore_training(training_uuid)
+    
+    return STrainingRestoreResponse(
+        message=f"Тренировка {training_uuid} успешно восстановлена из архива",
+        training_uuid=str(restored_training.uuid),
+        actual=restored_training.actual
+    )
