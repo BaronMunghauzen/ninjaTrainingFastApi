@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
+from contextlib import asynccontextmanager
 from app.users.router import router as router_users
 from app.categories.router import router as router_categories
 from app.programs.router import router as router_programs
@@ -23,7 +24,24 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Управление жизненным циклом приложения
+    """
+    # Запуск приложения
+    from app.background_tasks import start_scheduler
+    start_scheduler()
+    
+    yield
+    
+    # Остановка приложения
+    from app.background_tasks import stop_scheduler
+    stop_scheduler()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.middleware("http")
