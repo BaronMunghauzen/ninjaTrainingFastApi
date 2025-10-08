@@ -62,6 +62,15 @@ async def register_user(user_data: SUserRegister) -> dict:
     new_user = await UsersDAO.find_full_data(user_uuid)
     logger.info(f"Получен пользователь с ID: {new_user.id}")
     
+    # Автоматически активируем триальный период
+    try:
+        from app.subscriptions.service import SubscriptionService
+        trial_result = await SubscriptionService.create_trial_subscription(new_user.id)
+        logger.info(f"Триальная подписка активирована для пользователя {new_user.id} до {trial_result['expires_at']}")
+    except Exception as e:
+        logger.error(f"Ошибка активации триального периода: {e}")
+        # Не прерываем регистрацию, если не удалось активировать триал
+    
     # Генерируем токен для подтверждения email
     verification_token = generate_verification_token()
     

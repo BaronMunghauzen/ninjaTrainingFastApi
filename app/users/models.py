@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.achievements.models import Achievement
     from app.password_reset.models import PasswordResetCode
     from app.user_measurements.models import UserMeasurementType, UserMeasurement
+    from app.subscriptions.models import Payment, Subscription
 
 
 class GenderEnum(str, Enum):
@@ -60,6 +61,10 @@ class User(Base):
     # Новые поля для подтверждения email (добавляем только их)
     email_verified: Mapped[bool] = mapped_column(default=False, server_default=text('false'), nullable=False)
     email_verification_sent_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    
+    # Поля для работы с подписками
+    trial_used: Mapped[bool] = mapped_column(default=False, server_default=text('false'), nullable=False)
+    trial_started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
     # Определяем отношения с упражнениями
     exercises: Mapped[list["Exercise"]] = relationship("Exercise", back_populates="user")
@@ -93,6 +98,10 @@ class User(Base):
     
     # Определяем отношения с измерениями
     measurements: Mapped[list["UserMeasurement"]] = relationship("UserMeasurement", back_populates="user")
+    
+    # Определяем отношения с платежами и подписками
+    payments: Mapped[list["Payment"]] = relationship("Payment", back_populates="user")
+    subscriptions: Mapped[list["Subscription"]] = relationship("Subscription", back_populates="user")
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id})"
@@ -126,4 +135,7 @@ class User(Base):
             # Добавляем новые поля для email verification
             "email_verified": self.email_verified,
             "email_verification_sent_at": self.email_verification_sent_at.isoformat() if self.email_verification_sent_at else None,
+            # Добавляем поля для подписок
+            "trial_used": self.trial_used,
+            "trial_started_at": self.trial_started_at.isoformat() if self.trial_started_at else None,
         }
