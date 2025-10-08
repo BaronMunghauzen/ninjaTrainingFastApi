@@ -200,7 +200,8 @@ async def check_payment_status(
         status_info = await tochka.get_payment_status(payment.operation_id)
         
         # Обновляем статус если изменился (статусы от Точки в верхнем регистре)
-        if status_info['status'].upper() == 'PAID' and payment.status.value != 'succeeded':
+        # APPROVED или PAID означают успешную оплату
+        if status_info['status'].upper() in ['PAID', 'APPROVED'] and payment.status.value != 'succeeded':
             logger.info(f"Платеж {payment_uuid} оплачен, активируем подписку")
             await SubscriptionService.process_successful_payment(payment_uuid)
             

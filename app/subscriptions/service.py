@@ -218,7 +218,8 @@ class SubscriptionService:
             # Обрабатываем статус (Точка возвращает статусы в верхнем регистре)
             status_upper = status.upper() if status else ''
             
-            if status_upper == 'PAID':
+            # Статус APPROVED означает успешную оплату
+            if status_upper in ['PAID', 'APPROVED']:
                 logger.info(f"Платеж {payment_uuid} оплачен, активируем подписку")
                 
                 # Сохраняем данные об оплате (URL чека может прийти в вебхуке)
