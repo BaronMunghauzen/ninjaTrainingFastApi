@@ -230,21 +230,34 @@ async def payment_webhook(request: Request):
     """
     Вебхук для обработки уведомлений от Точки
     
-    Точка отправляет уведомления о статусе платежей на этот endpoint.
-    Этот URL должен быть указан при создании платёжной ссылки в поле webhookUrl.
+    Точка отправляет JWT токен в теле запроса, который нужно расшифровать.
+    Документация: https://developers.tochka.com/docs/tochka-api/opisanie-metodov/vebhuki
     
-    **Важно:** Этот endpoint должен быть доступен извне (не localhost).
-    Для разработки можно использовать ngrok.
+    **Важно:** 
+    - Этот endpoint должен быть доступен извне (не localhost)
+    - Для разработки используйте ngrok
+    - Вебхук для события `acquiringInternetPayment`
     """
     try:
-        webhook_data = await request.json()
+        # Получаем тело запроса как текст (JWT токен)
+        jwt_token = (await request.body()).decode('utf-8')
+        
         logger.info(f"=== Получен вебхук от Точки ===")
         logger.info(f"Headers: {dict(request.headers)}")
-        logger.info(f"Body: {webhook_data}")
+        logger.info(f"JWT Token (первые 100 символов): {jwt_token[:100]}...")
         
-        # TODO: Добавить проверку подписи от Точки для безопасности
-        # Документация: https://developers.tochka.com/docs/tochka-api/
+        # Расшифровываем и проверяем JWT
+        from app.payments.webhook_validator import decode_webhook_jwt
         
+        try:
+            webhook_data = decode_webhook_jwt(jwt_token)
+            logger.info(f"Расшифрованные данные вебхука: {webhook_data}")
+        except Exception as e:
+            logger.error(f"Ошибка расшифровки JWT вебхука: {e}")
+            # Невалидный вебхук - возвращаем 400
+            return {"status": "error", "message": "Invalid JWT signature"}
+        
+        # Обрабатываем расшифрованные данные
         await SubscriptionService.process_webhook(webhook_data)
         
         logger.info(f"=== Вебхук успешно обработан ===")

@@ -70,6 +70,7 @@ class TochkaPaymentService:
         
         # Формируем payload согласно документации Точки
         # ВАЖНО: Все данные должны быть внутри объекта "Data"
+        # Примечание: webhookUrl здесь НЕ указывается - вебхуки настраиваются отдельно через Create Webhook API
         payload = {
             "Data": {
                 "customerCode": customer_code,  # Код клиента в системе Точки (константа)
@@ -78,10 +79,13 @@ class TochkaPaymentService:
                 "consumerId": user_uuid,  # UUID пользователя
                 "paymentMode": payment_mode,  # Способы оплаты: card, sbp, tinkoff, dolyame
                 "redirectUrl": return_url,  # URL для редиректа после оплаты
-                "merchantId": settings.TOCHKA_MERCHANT_ID,  # ID торговой точки (15 символов)
                 "ttl": 5  # Время действия ссылки в минутах (5 минут)
             }
         }
+        
+        # Добавляем merchantId если указан (опционально)
+        if settings.TOCHKA_MERCHANT_ID:
+            payload["Data"]["merchantId"] = settings.TOCHKA_MERCHANT_ID
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:

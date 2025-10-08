@@ -1,0 +1,71 @@
+# ========================================
+# ТОЧКА БАНК - НАСТРОЙКИ ПЛАТЕЖЕЙ
+# Добавьте эти переменные в ваш .env файл
+# ========================================
+
+# JWT-токен от Точки (получите в личном кабинете: https://enter.tochka.com/)
+# ВАЖНО: Токен должен иметь разрешения:
+# - MakeAcquiringOperation
+# - ReadAcquiringData
+# - ReadCustomerData
+# - ManageWebhookData (для вебхуков)
+TOCHKA_ACCESS_TOKEN=your_jwt_token_here
+
+# Код клиента в системе Точки (9 символов)
+# PROD:
+TOCHKA_CUSTOMER_CODE=305015065
+# SANDBOX (для тестов):
+# TOCHKA_CUSTOMER_CODE=1234567ab
+
+# ID торговой точки (15 символов, опционально)
+# PROD (оставить пустым если одна торговая точка):
+# TOCHKA_MERCHANT_ID=
+# SANDBOX (для тестов):
+# TOCHKA_MERCHANT_ID=123456789012345
+
+# URL API Точки
+# PROD:
+TOCHKA_API_URL=https://enter.tochka.com/uapi
+# SANDBOX (для тестов):
+# TOCHKA_API_URL=https://enter.tochka.com/sandbox/v2
+
+# BASE_URL для вебхуков (должен быть доступен из интернета!)
+# Локально с ngrok:
+# BASE_URL=https://abc123.ngrok.io
+# Продакшен:
+# BASE_URL=https://yourdomain.com
+
+# ========================================
+# ИНСТРУКЦИЯ ПО ПЕРЕКЛЮЧЕНИЮ ОКРУЖЕНИЙ
+# ========================================
+#
+# Для работы в SANDBOX (тестовое окружение):
+# 1. Раскомментируйте SANDBOX строки
+# 2. Закомментируйте PROD строки
+# 3. Получите тестовый JWT-токен в Точке
+# 4. Перезапустите сервер
+#
+# Для работы в PROD (боевое окружение):
+# 1. Используйте боевой JWT-токен
+# 2. Используйте боевой customerCode
+# 3. Используйте боевой URL API
+# 4. Настройте HTTPS на сервере
+# 5. Настройте вебхук в Точке
+#
+# ========================================
+
+# ПРИМЕРЫ ДЛЯ КОПИРОВАНИЯ:
+
+# ====== SANDBOX КОНФИГУРАЦИЯ ======
+# TOCHKA_ACCESS_TOKEN=sandbox.jwt.token
+# TOCHKA_CUSTOMER_CODE=1234567ab
+# TOCHKA_MERCHANT_ID=123456789012345
+# TOCHKA_API_URL=https://enter.tochka.com/sandbox/v2
+# BASE_URL=https://abc123.ngrok.io
+
+# ====== PROD КОНФИГУРАЦИЯ ======
+# TOCHKA_ACCESS_TOKEN=your_real_jwt_token
+# TOCHKA_CUSTOMER_CODE=305015065
+# TOCHKA_MERCHANT_ID=
+# TOCHKA_API_URL=https://enter.tochka.com/uapi
+# BASE_URL=https://yourdomain.com

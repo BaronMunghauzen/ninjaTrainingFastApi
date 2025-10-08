@@ -182,32 +182,38 @@ class SubscriptionService:
         Документация: https://developers.tochka.com/docs/tochka-api/opisanie-metodov/vebkhuki
         
         Args:
-            webhook_data: Данные из вебхука
+            webhook_data: Расшифрованные данные из JWT вебхука
         """
-        logger.info(f"Получен вебхук от Точки: {webhook_data}")
+        logger.info(f"Обработка вебхука от Точки: {webhook_data}")
         
         try:
-            # Извлекаем данные из вебхука
-            event_type = webhook_data.get('eventType')
-            payment_data = webhook_data.get('Data', {})
+            # Проверяем тип вебхука
+            webhook_type = webhook_data.get('webhookType')
             
-            payment_link_id = payment_data.get('paymentLinkId')
-            status = payment_data.get('status')  # new, paid, expired, cancelled
-            metadata = payment_data.get('metadata', {})
-            payment_uuid = metadata.get('payment_uuid')
-            
-            logger.info(f"Вебхук: payment_link_id={payment_link_id}, status={status}, payment_uuid={payment_uuid}")
-            
-            if not payment_uuid:
-                logger.warning("Вебхук не содержит payment_uuid в metadata")
+            if webhook_type != 'acquiringInternetPayment':
+                logger.warning(f"Получен вебхук неизвестного типа: {webhook_type}")
                 return
             
-            # Находим платеж в БД
-            payment = await PaymentDAO.find_full_data(payment_uuid)
+            # Извлекаем данные о платеже
+            operation_id = webhook_data.get('operationId')  # UUID операции
+            status = webhook_data.get('status')  # CREATED, PAID, EXPIRED, CANCELLED
+            customer_code = webhook_data.get('customerCode')  # Наш код клиента
+            
+            logger.info(f"Вебхук acquiringInternetPayment: operationId={operation_id}, status={status}, customerCode={customer_code}")
+            
+            if not operation_id:
+                logger.warning("Вебхук не содержит operationId")
+                return
+            
+            # Находим платеж в БД по operation_id
+            payment = await PaymentDAO.find_one_or_none(operation_id=operation_id)
             
             if not payment:
-                logger.error(f"Платеж {payment_uuid} не найден в БД")
+                logger.error(f"Платеж с operationId {operation_id} не найден в БД")
                 return
+            
+            payment_uuid = str(payment.uuid)
+            logger.info(f"Найден платеж в БД: {payment_uuid}")
             
             # Обрабатываем статус (Точка возвращает статусы в верхнем регистре)
             status_upper = status.upper() if status else ''
@@ -215,8 +221,8 @@ class SubscriptionService:
             if status_upper == 'PAID':
                 logger.info(f"Платеж {payment_uuid} оплачен, активируем подписку")
                 
-                # Сохраняем URL чека
-                receipt_url = payment_data.get('receiptUrl')
+                # Сохраняем данные об оплате (URL чека может прийти в вебхуке)
+                receipt_url = webhook_data.get('receiptUrl')
                 await PaymentDAO.update(
                     payment_uuid,
                     status='succeeded',
