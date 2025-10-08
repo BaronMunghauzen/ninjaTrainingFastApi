@@ -222,7 +222,13 @@ class SubscriptionService:
             if status_upper in ['PAID', 'APPROVED']:
                 logger.info(f"Платеж {payment_uuid} оплачен, активируем подписку")
                 
-                # Сохраняем данные об оплате (URL чека может прийти в вебхуке)
+                # ВАЖНО: Сначала активируем подписку, ПОТОМ обновляем статус платежа!
+                # Иначе проверка payment.status == 'succeeded' заблокирует создание подписки
+                
+                # 1. Активируем подписку (пока статус еще 'processing')
+                await SubscriptionService.process_successful_payment(payment_uuid)
+                
+                # 2. Обновляем статус платежа
                 receipt_url = webhook_data.get('receiptUrl')
                 await PaymentDAO.update(
                     payment_uuid,
@@ -230,9 +236,6 @@ class SubscriptionService:
                     paid_at=datetime.utcnow(),
                     receipt_url=receipt_url
                 )
-                
-                # Активируем подписку
-                await SubscriptionService.process_successful_payment(payment_uuid)
                 
             elif status_upper == 'EXPIRED':
                 logger.info(f"Срок действия платёжной ссылки {payment_uuid} истек")
@@ -269,8 +272,10 @@ class SubscriptionService:
         if not payment:
             raise Exception(f"Платеж {payment_uuid} не найден")
         
-        if payment.status == 'succeeded':
-            logger.info(f"Платеж {payment_uuid} уже обработан")
+        # Проверяем, не создана ли уже подписка для этого платежа
+        existing_subscription = await SubscriptionDAO.find_one_or_none(payment_id=payment.id)
+        if existing_subscription:
+            logger.info(f"Подписка для платежа {payment_uuid} уже создана, пропускаем")
             return
         
         plan = await SubscriptionPlanDAO.find_one_or_none_by_id(payment.plan_id)
@@ -285,16 +290,17 @@ class SubscriptionService:
         now = datetime.utcnow()
         current_end = user.subscription_until
         
-        # Если подписка активна, продлеваем от даты окончания
-        if current_end and current_end > now.date():
-            started_at = datetime.combine(current_end, datetime.min.time()) + timedelta(days=1)
-            logger.info(f"Продление существующей подписки с {current_end}")
+        # Если подписка активна, продлеваем от даты окончания (без разрыва)
+        if current_end and current_end >= now.date():
+            # Продление: новая дата = старая дата окончания + X месяцев
+            started_at = datetime.combine(current_end, datetime.min.time())
+            expires_at = started_at + timedelta(days=30 * plan.duration_months)
+            logger.info(f"Продление подписки: {current_end} → {expires_at.date()}")
         else:
+            # Активация новой подписки: начинается сейчас
             started_at = now
-            logger.info("Активация новой подписки")
-        
-        # Рассчитываем дату окончания (30 дней * количество месяцев)
-        expires_at = started_at + timedelta(days=30 * plan.duration_months)
+            expires_at = started_at + timedelta(days=30 * plan.duration_months)
+            logger.info(f"Активация новой подписки до {expires_at.date()}")
         
         # Создаем запись подписки
         subscription_data = {
