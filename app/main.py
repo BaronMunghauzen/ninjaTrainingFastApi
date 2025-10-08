@@ -18,6 +18,7 @@ from app.services.router import router as router_services
 from app.achievements.router import router as router_achievements
 from app.password_reset.router import router as router_password_reset
 from app.user_measurements.router import router as router_user_measurements
+from app.subscriptions.router import router as router_subscriptions
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -123,6 +124,7 @@ app.include_router(router_services)
 app.include_router(router_achievements)
 app.include_router(router_password_reset)
 app.include_router(router_user_measurements)
+app.include_router(router_subscriptions)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")
