@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status, Response, Depends, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from app.users.auth import get_password_hash, authenticate_user, create_access_token, create_refresh_token
 from app.users.dao import UsersDAO
 from app.users.dependencies import get_current_user, get_current_admin_user, get_current_user_user
@@ -218,10 +219,8 @@ async def verify_email(token: str = Query(..., description="Токен подт�
     verification = await EmailVerificationDAO.find_valid_token(token)
     if not verification:
         logger.warning(f"Недействительный токен: {token[:10]}...")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Недействительный или истекший токен"
-        )
+        # Возвращаем страницу с ошибкой вместо JSON
+        return FileResponse("static/email-verification-error.html", media_type="text/html")
     
     logger.info(f"Найден действительный токен для пользователя ID: {verification.user_id}")
     
@@ -229,17 +228,16 @@ async def verify_email(token: str = Query(..., description="Токен подт�
     user = await UsersDAO.find_one_or_none_by_id(verification.user_id)
     if not user:
         logger.error(f"Пользователь с ID {verification.user_id} не найден")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пользователь не найден"
-        )
+        # Возвращаем страницу с ошибкой вместо JSON
+        return FileResponse("static/email-verification-error.html", media_type="text/html")
     
     # Подтверждаем email пользователя по UUID
     await UsersDAO.update(user.uuid, email_verified=True)
     await EmailVerificationDAO.mark_as_used(verification.id)
     
     logger.info(f"Email подтвержден для пользователя ID: {verification.user_id}")
-    return {"message": "Email успешно подтвержден!"}
+    # Возвращаем страницу успеха вместо JSON
+    return FileResponse("static/email-verified.html", media_type="text/html")
 
 
 @router.post("/resend-verification/")
