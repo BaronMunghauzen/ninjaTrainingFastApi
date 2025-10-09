@@ -35,44 +35,6 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .error-icon {
-            width: 100px;
-            height: 100px;
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 30px;
-            animation: shake 0.5s ease-out;
-        }
-
-        .error-icon svg {
-            width: 60px;
-            height: 60px;
-            stroke: white;
-            stroke-width: 3;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            fill: none;
-        }
-
-        @keyframes shake {
-
-            0%,
-            100% {
-                transform: translateX(0);
-            }
-
-            25% {
-                transform: translateX(-10px);
-            }
-
-            75% {
-                transform: translateX(10px);
-            }
-        }
-
         h1 {
             font-size: 32px;
             font-weight: 700;
@@ -123,13 +85,6 @@
             }
         }
 
-        .ninja-emoji {
-            font-size: 24px;
-            margin-bottom: 10px;
-            display: block;
-            animation: fadeInUp 0.6s ease-out 0.1s backwards;
-        }
-
         @media (max-width: 768px) {
             .container {
                 padding: 40px 30px;
@@ -153,15 +108,6 @@
 
 <body>
     <div class="container">
-        <span class="ninja-emoji">🥋</span>
-
-        <div class="error-icon">
-            <svg viewBox="0 0 52 52">
-                <line x1="16" y1="16" x2="36" y2="36" />
-                <line x1="36" y1="16" x2="16" y2="36" />
-            </svg>
-        </div>
-
         <h1>Ошибка подтверждения</h1>
 
         <p class="message">
