@@ -491,10 +491,10 @@ async def get_passed_exercise_references(
 ) -> list[dict]:
     """
     Получить уникальные упражнения из exercise_reference, 
-    по которым есть записи в user_exercise со статусом PASSED
+    по которым у текущего пользователя есть записи в user_exercise со статусом PASSED
     """
     try:
-        exercises = await ExerciseReferenceDAO.find_passed_exercises(caption=caption)
+        exercises = await ExerciseReferenceDAO.find_passed_exercises(user_uuid=user_data.uuid, caption=caption)
         
         if not exercises:
             return []

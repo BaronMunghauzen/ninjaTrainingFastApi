@@ -386,18 +386,30 @@ class ExerciseReferenceDAO(BaseDAO):
             }
 
     @classmethod
-    async def find_passed_exercises(cls, caption: str = None) -> list:
+    async def find_passed_exercises(cls, user_uuid: UUID, caption: str = None) -> list:
         """
         Получить уникальные упражнения из exercise_reference, 
-        по которым есть записи в user_exercise со статусом PASSED
+        по которым у конкретного пользователя есть записи в user_exercise со статусом PASSED
         
         Args:
+            user_uuid: UUID пользователя
             caption: Поиск по названию упражнения (без учета регистра, частичное совпадение)
         """
         try:
             async with async_session_maker() as session:
-                # Получаем записи user_exercise со статусом PASSED
-                user_exercises_query = select(UserExercise).where(UserExercise.status == ExerciseStatus.PASSED)
+                # Получаем ID пользователя
+                from app.users.models import User
+                user_query = select(User).filter_by(uuid=user_uuid)
+                user_result = await session.execute(user_query)
+                user = user_result.scalar_one_or_none()
+                if not user:
+                    return []
+                
+                # Получаем записи user_exercise со статусом PASSED для конкретного пользователя
+                user_exercises_query = select(UserExercise).where(
+                    UserExercise.status == ExerciseStatus.PASSED,
+                    UserExercise.user_id == user.id
+                )
                 user_exercises_result = await session.execute(user_exercises_query)
                 user_exercises = user_exercises_result.scalars().all()
                 
