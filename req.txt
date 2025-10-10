@@ -13,3 +13,4 @@ httpx
 ffmpeg
 fastapi-mail
 apscheduler
+loguru

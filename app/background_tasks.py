@@ -5,9 +5,7 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.subscriptions.service import SubscriptionService
-import logging
-
-logger = logging.getLogger(__name__)
+from app.logger import logger
 
 # Глобальный планировщик
 scheduler = None

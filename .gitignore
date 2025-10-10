@@ -33,6 +33,7 @@ Thumbs.db
 
 # Log files
 *.log
+logs/
 
 # Docker
 *.pid

@@ -20,9 +20,7 @@ from app.achievements.router import router as router_achievements
 from app.password_reset.router import router as router_password_reset
 from app.user_measurements.router import router as router_user_measurements
 from app.subscriptions.router import router as router_subscriptions
-import logging
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+from app.logger import logger
 
 
 @asynccontextmanager
@@ -55,14 +53,14 @@ async def log_request_data(request: Request, call_next):
     
     if is_file_upload:
         # Для файловых запросов логируем только метаданные
-        logging.info(
+        logger.info(
             f"Request: {request.method} {request.url}\n"
             f"Headers: {dict(request.headers)}\n"
             f"Body: [FILE UPLOAD - content not logged]"
         )
     else:
         # Для остальных запросов логируем полное тело
-        logging.info(
+        logger.info(
             f"Request: {request.method} {request.url}\n"
             f"Headers: {dict(request.headers)}\n"
             f"Body: {body.decode(errors='replace')}"
@@ -105,8 +103,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     """Кастомный обработчик ошибок SQLAlchemy"""
     # Логируем детали ошибки для отладки
-    import logging
-    logging.error(f"SQLAlchemy error: {exc}")
+    logger.error(f"SQLAlchemy error: {exc}")
     
     # Получаем детали ошибки
     orig = getattr(exc, 'orig', None)
