@@ -115,7 +115,7 @@ async def get_training_by_id(training_uuid: UUID, user_data = Depends(get_curren
 
 
 @router.post("/add/")
-async def add_training(training: STrainingAdd, user_data = Depends(get_current_admin_user)) -> dict:
+async def add_training(training: STrainingAdd, user_data = Depends(get_current_user_user)) -> dict:
     values = training.model_dump()
     # Получаем program_id по program_uuid
     program_uuid = values.pop('program_uuid', None)
@@ -185,7 +185,21 @@ async def add_training(training: STrainingAdd, user_data = Depends(get_current_a
 
 
 @router.put("/update/{training_uuid}")
-async def update_training(training_uuid: UUID, training: STrainingUpdate, user_data = Depends(get_current_admin_user)) -> dict:
+async def update_training(training_uuid: UUID, training: STrainingUpdate, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_training = await TrainingDAO.find_one_or_none(uuid=training_uuid)
+    if not existing_training:
+        raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    # Если тренировка пользовательская (user), проверяем, что это его тренировка
+    if existing_training.training_type == "user":
+        if not existing_training.user_id or existing_training.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете редактировать только свои тренировки")
+    # Если тренировка системная (system), разрешаем редактировать только админам
+    elif existing_training.training_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут редактировать системные тренировки")
+    
     update_data = training.model_dump(exclude_unset=True)
     # Преобразуем program_uuid и user_uuid в id, если они есть
     if 'program_uuid' in update_data:

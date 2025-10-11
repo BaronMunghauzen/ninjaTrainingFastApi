@@ -166,7 +166,7 @@ async def get_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data 
     return rez.to_dict()
 
 @router.post('/add/', summary='Создать упражнение справочника')
-async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = Depends(get_current_admin_user)) -> dict:
+async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = Depends(get_current_user_user)) -> dict:
     values = exercise.model_dump()
     # Обработка image_uuid
     if values.get('image_uuid'):
@@ -201,7 +201,21 @@ async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = De
     return exercise_obj.to_dict()
 
 @router.put('/update/{exercise_reference_uuid}', summary='Обновить упражнение справочника')
-async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SExerciseReferenceUpdate, user_data = Depends(get_current_admin_user)) -> dict:
+async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SExerciseReferenceUpdate, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_exercise = await ExerciseReferenceDAO.find_one_or_none(uuid=exercise_reference_uuid)
+    if not existing_exercise:
+        raise HTTPException(status_code=404, detail="Упражнение не найдено")
+    
+    # Если упражнение пользовательское (user), проверяем, что это его упражнение
+    if existing_exercise.exercise_type == "user":
+        if not existing_exercise.user_id or existing_exercise.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете редактировать только свои упражнения")
+    # Если упражнение системное (system), разрешаем редактировать только админам
+    elif existing_exercise.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут редактировать системные упражнения")
+    
     update_data = exercise.model_dump(exclude_unset=True)
     
     # Специальная обработка для technique_description - фиксируем факт присутствия поля и его значение
