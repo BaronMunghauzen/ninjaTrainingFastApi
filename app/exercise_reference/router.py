@@ -292,7 +292,21 @@ async def update_exercise_reference(exercise_reference_uuid: UUID, exercise: SEx
         return {'message': 'Ошибка при обновлении упражнения справочника!'}
 
 @router.delete('/delete/{exercise_reference_uuid}', summary='Удалить упражнение справочника')
-async def delete_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data = Depends(get_current_admin_user)) -> dict:
+async def delete_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_exercise = await ExerciseReferenceDAO.find_one_or_none(uuid=exercise_reference_uuid)
+    if not existing_exercise:
+        raise HTTPException(status_code=404, detail="Упражнение не найдено")
+    
+    # Если упражнение пользовательское (user), проверяем, что это его упражнение
+    if existing_exercise.exercise_type == "user":
+        if not existing_exercise.user_id or existing_exercise.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете удалять только свои упражнения")
+    # Если упражнение системное (system), разрешаем удалять только админам
+    elif existing_exercise.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять системные упражнения")
+    
     check = await ExerciseReferenceDAO.delete_by_id(exercise_reference_uuid)
     if check:
         return {'message': f'Упражнение справочника с ID {exercise_reference_uuid} удалено!'}
