@@ -9,12 +9,12 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetVerify(BaseModel):
     email: EmailStr = Field(..., description="Email пользователя")
-    code: str = Field(..., min_length=6, max_length=6, description="6-значный код подтверждения")
+    code: str = Field(..., min_length=4, max_length=6, description="Код подтверждения (4-6 цифр)")
 
 
 class PasswordResetConfirm(BaseModel):
     email: EmailStr = Field(..., description="Email пользователя")
-    code: str = Field(..., min_length=6, max_length=6, description="6-значный код подтверждения")
+    code: str = Field(..., min_length=4, max_length=6, description="Код подтверждения (4-6 цифр)")
     new_password: str = Field(..., min_length=5, max_length=50, description="Новый пароль")
 
 
