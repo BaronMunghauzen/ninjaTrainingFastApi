@@ -128,12 +128,25 @@ async def add_training(training: STrainingAdd, user_data = Depends(get_current_u
 
     # Аналогично для user_uuid, если нужно
     user_uuid = values.pop('user_uuid', None)
+    user_id = None
     if user_uuid:
         user = await UsersDAO.find_one_or_none(uuid=user_uuid)
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         values['user_id'] = user.id
+        user_id = user.id
     # если не передан, не добавляем user_id
+    
+    # Проверяем права доступа
+    training_type = values.get('training_type', 'user')
+    if training_type == "user":
+        # Пользователь может создавать только свои тренировки
+        if user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете создавать тренировки только для своего профиля")
+    elif training_type == "system":
+        # Только админы могут создавать системные тренировки
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут создавать системные тренировки")
 
     # Обработка image_uuid
     if values.get('image_uuid'):
@@ -267,7 +280,21 @@ async def update_training(training_uuid: UUID, training: STrainingUpdate, user_d
 
 
 @router.delete("/delete/{training_uuid}")
-async def delete_training_by_id(training_uuid: UUID, user_data = Depends(get_current_admin_user)) -> dict:
+async def delete_training_by_id(training_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_training = await TrainingDAO.find_one_or_none(uuid=training_uuid)
+    if not existing_training:
+        raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    # Если тренировка пользовательская (user), проверяем, что это его тренировка
+    if existing_training.training_type == "user":
+        if not existing_training.user_id or existing_training.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете удалять только свои тренировки")
+    # Если тренировка системная (system), разрешаем удалять только админам
+    elif existing_training.training_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять системные тренировки")
+    
     check = await TrainingDAO.delete_by_id(training_uuid)
     if check:
         return {"message": f"Тренировка с ID {training_uuid} удалена!"}
@@ -279,11 +306,19 @@ async def delete_training_by_id(training_uuid: UUID, user_data = Depends(get_cur
 async def upload_training_image(
     training_uuid: UUID,
     file: UploadFile = File(...),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     training = await TrainingDAO.find_full_data(training_uuid)
     if not training:
         raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    # Проверяем права доступа
+    if training.training_type == "user":
+        if not training.user_id or training.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете загружать изображения только для своих тренировок")
+    elif training.training_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут загружать изображения для системных тренировок")
     old_file_uuid = getattr(training.image, 'uuid', None)
     saved_file = await FileService.save_file(
         file=file,
@@ -298,11 +333,19 @@ async def upload_training_image(
 @router.delete("/{training_uuid}/delete-image", summary="Удалить изображение тренировки")
 async def delete_training_image(
     training_uuid: UUID,
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     training = await TrainingDAO.find_full_data(training_uuid)
     if not training:
         raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    # Проверяем права доступа
+    if training.training_type == "user":
+        if not training.user_id or training.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете удалять изображения только для своих тренировок")
+    elif training.training_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять изображения для системных тренировок")
     
     if not training.image:
         raise HTTPException(status_code=404, detail="Изображение не найдено")
@@ -321,11 +364,23 @@ async def delete_training_image(
 @router.post("/{training_uuid}/archive", summary="Архивировать тренировку", response_model=STrainingArchiveResponse)
 async def archive_training(
     training_uuid: UUID,
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ) -> STrainingArchiveResponse:
     """
     Архивировать тренировку (установить actual = False)
     """
+    # Проверяем права доступа
+    existing_training = await TrainingDAO.find_one_or_none(uuid=training_uuid)
+    if not existing_training:
+        raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    if existing_training.training_type == "user":
+        if not existing_training.user_id or existing_training.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете архивировать только свои тренировки")
+    elif existing_training.training_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут архивировать системные тренировки")
+    
     archived_training = await TrainingDAO.archive_training(training_uuid)
     
     return STrainingArchiveResponse(
@@ -338,11 +393,23 @@ async def archive_training(
 @router.post("/{training_uuid}/restore", summary="Восстановить тренировку из архива", response_model=STrainingRestoreResponse)
 async def restore_training(
     training_uuid: UUID,
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ) -> STrainingRestoreResponse:
     """
     Восстановить тренировку из архива (установить actual = True)
     """
+    # Проверяем права доступа
+    existing_training = await TrainingDAO.find_one_or_none(uuid=training_uuid)
+    if not existing_training:
+        raise HTTPException(status_code=404, detail="Тренировка не найдена")
+    
+    if existing_training.training_type == "user":
+        if not existing_training.user_id or existing_training.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете восстанавливать только свои тренировки")
+    elif existing_training.training_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут восстанавливать системные тренировки")
+    
     restored_training = await TrainingDAO.restore_training(training_uuid)
     
     return STrainingRestoreResponse(
