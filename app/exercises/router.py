@@ -50,7 +50,7 @@ async def get_exercise_by_id(exercise_uuid: UUID, user_data = Depends(get_curren
 
 
 @router.post("/add/")
-async def add_exercise(exercise: SExerciseAdd, user_data = Depends(get_current_admin_user)) -> dict:
+async def add_exercise(exercise: SExerciseAdd, user_data = Depends(get_current_user_user)) -> dict:
     values = exercise.model_dump()
     # Получаем user_id по user_uuid, если передан
     user_id = None
@@ -63,6 +63,17 @@ async def add_exercise(exercise: SExerciseAdd, user_data = Depends(get_current_a
         # Удаляем user_uuid из values, если оно None
         values.pop('user_uuid', None)
     values['user_id'] = user_id
+    
+    # Проверяем права доступа
+    exercise_type = values.get('exercise_type', 'user')
+    if exercise_type == "user":
+        # Пользователь может создавать только свои упражнения
+        if user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете создавать упражнения только для своего профиля")
+    elif exercise_type == "system":
+        # Только админы могут создавать системные упражнения
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут создавать системные упражнения")
 
     # Обработка image_uuid
     if values.get('image_uuid'):
@@ -111,7 +122,21 @@ async def add_exercise(exercise: SExerciseAdd, user_data = Depends(get_current_a
 
 
 @router.put("/update/{exercise_uuid}")
-async def update_exercise(exercise_uuid: UUID, exercise: SExerciseUpdate, user_data = Depends(get_current_admin_user)) -> dict:
+async def update_exercise(exercise_uuid: UUID, exercise: SExerciseUpdate, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_exercise = await ExerciseDAO.find_one_or_none(uuid=exercise_uuid)
+    if not existing_exercise:
+        raise HTTPException(status_code=404, detail="Упражнение не найдено")
+    
+    # Если упражнение пользовательское (user), проверяем, что это его упражнение
+    if existing_exercise.exercise_type == "user":
+        if not existing_exercise.user_id or existing_exercise.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете редактировать только свои упражнения")
+    # Если упражнение системное (system), разрешаем редактировать только админам
+    elif existing_exercise.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут редактировать системные упражнения")
+    
     update_data = exercise.model_dump(exclude_unset=True)
     # Преобразуем user_uuid в user_id, если оно есть
     if 'user_uuid' in update_data:
@@ -167,7 +192,21 @@ async def update_exercise(exercise_uuid: UUID, exercise: SExerciseUpdate, user_d
 
 
 @router.delete("/delete/{exercise_uuid}")
-async def delete_exercise_by_id(exercise_uuid: UUID, user_data = Depends(get_current_admin_user)) -> dict:
+async def delete_exercise_by_id(exercise_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_exercise = await ExerciseDAO.find_one_or_none(uuid=exercise_uuid)
+    if not existing_exercise:
+        raise HTTPException(status_code=404, detail="Упражнение не найдено")
+    
+    # Если упражнение пользовательское (user), проверяем, что это его упражнение
+    if existing_exercise.exercise_type == "user":
+        if not existing_exercise.user_id or existing_exercise.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете удалять только свои упражнения")
+    # Если упражнение системное (system), разрешаем удалять только админам
+    elif existing_exercise.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять системные упражнения")
+    
     check = await ExerciseDAO.delete_by_id(exercise_uuid)
     if check:
         return {"message": f"Упражнение с ID {exercise_uuid} удалено!"}
@@ -179,11 +218,19 @@ async def delete_exercise_by_id(exercise_uuid: UUID, user_data = Depends(get_cur
 async def upload_exercise_image(
     exercise_uuid: UUID,
     file: UploadFile = File(...),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     exercise = await ExerciseDAO.find_full_data(exercise_uuid)
     if not exercise:
         raise HTTPException(status_code=404, detail="Упражнение не найдено")
+    
+    # Проверяем права доступа
+    if exercise.exercise_type == "user":
+        if not exercise.user_id or exercise.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете загружать изображения только для своих упражнений")
+    elif exercise.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут загружать изображения для системных упражнений")
     # Сохраняем файл
     old_file_uuid = getattr(exercise.image, 'uuid', None)
     saved_file = await FileService.save_file(
@@ -200,11 +247,19 @@ async def upload_exercise_image(
 async def upload_exercise_video(
     exercise_uuid: UUID,
     file: UploadFile = File(...),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     exercise = await ExerciseDAO.find_full_data(exercise_uuid)
     if not exercise:
         raise HTTPException(status_code=404, detail="Упражнение не найдено")
+    
+    # Проверяем права доступа
+    if exercise.exercise_type == "user":
+        if not exercise.user_id or exercise.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете загружать видео только для своих упражнений")
+    elif exercise.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут загружать видео для системных упражнений")
     # Сохраняем видео
     old_file_uuid = getattr(exercise.video, 'uuid', None)
     old_preview_uuid = getattr(exercise.video_preview, 'uuid', None)
