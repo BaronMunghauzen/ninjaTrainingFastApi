@@ -101,9 +101,10 @@ async def get_exercise_group_by_id(exercise_group_uuid: UUID, user_data = Depend
 
 
 @router.post("/add/")
-async def add_exercise_group(exercise_group: SExerciseGroupAdd, user_data = Depends(get_current_admin_user)) -> dict:
+async def add_exercise_group(exercise_group: SExerciseGroupAdd, user_data = Depends(get_current_user_user)) -> dict:
     values = exercise_group.model_dump()
     # Получаем training_id по training_uuid, если передан
+    training = None
     if values.get('training_uuid'):
         training = await TrainingDAO.find_one_or_none(uuid=values.pop('training_uuid'))
         if not training:
@@ -112,6 +113,21 @@ async def add_exercise_group(exercise_group: SExerciseGroupAdd, user_data = Depe
     else:
         # Удаляем training_uuid из values, если оно None
         values.pop('training_uuid', None)
+    
+    # Проверяем права доступа через тренировку
+    if training:
+        if training.training_type == "user":
+            # Пользователь может создавать группы только для своих тренировок
+            if training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете создавать группы упражнений только для своих тренировок")
+        elif training.training_type == "system":
+            # Только админы могут создавать группы для системных тренировок
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут создавать группы для системных тренировок")
+    else:
+        # Если тренировка не указана, только админы могут создавать группы
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут создавать группы упражнений без привязки к тренировке")
 
     # Обработка image_uuid
     if values.get('image_uuid'):
@@ -173,7 +189,27 @@ async def add_exercise_group(exercise_group: SExerciseGroupAdd, user_data = Depe
 
 
 @router.put("/update/{exercise_group_uuid}")
-async def update_exercise_group(exercise_group_uuid: UUID, exercise_group: SExerciseGroupUpdate, user_data = Depends(get_current_admin_user)) -> dict:
+async def update_exercise_group(exercise_group_uuid: UUID, exercise_group: SExerciseGroupUpdate, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
+    if not existing_group:
+        raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    # Проверяем права через тренировку
+    if existing_group.training:
+        if existing_group.training.training_type == "user":
+            # Пользователь может редактировать группы только своих тренировок
+            if existing_group.training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете редактировать группы упражнений только своих тренировок")
+        elif existing_group.training.training_type == "system":
+            # Только админы могут редактировать группы системных тренировок
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут редактировать группы системных тренировок")
+    else:
+        # Если тренировка не указана, только админы могут редактировать
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут редактировать группы упражнений без привязки к тренировке")
+    
     update_data = exercise_group.model_dump(exclude_unset=True)
     # Преобразуем training_uuid в training_id, если оно есть
     if 'training_uuid' in update_data:
@@ -243,7 +279,27 @@ async def update_exercise_group(exercise_group_uuid: UUID, exercise_group: SExer
 
 
 @router.delete("/delete/{exercise_group_uuid}")
-async def delete_exercise_group_by_id(exercise_group_uuid: UUID, user_data = Depends(get_current_admin_user)) -> dict:
+async def delete_exercise_group_by_id(exercise_group_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+    # Проверяем права доступа
+    existing_group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
+    if not existing_group:
+        raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    # Проверяем права через тренировку
+    if existing_group.training:
+        if existing_group.training.training_type == "user":
+            # Пользователь может удалять группы только своих тренировок
+            if existing_group.training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете удалять группы упражнений только своих тренировок")
+        elif existing_group.training.training_type == "system":
+            # Только админы могут удалять группы системных тренировок
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут удалять группы системных тренировок")
+    else:
+        # Если тренировка не указана, только админы могут удалять
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять группы упражнений без привязки к тренировке")
+    
     check = await ExerciseGroupDAO.delete_by_id(exercise_group_uuid)
     if check:
         return {"message": f"Группа упражнений с ID {exercise_group_uuid} удалена!"}
@@ -255,11 +311,23 @@ async def delete_exercise_group_by_id(exercise_group_uuid: UUID, user_data = Dep
 async def upload_exercise_group_image(
     exercise_group_uuid: UUID,
     file: UploadFile = File(...),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     exercise_group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
     if not exercise_group:
         raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    # Проверяем права доступа через тренировку
+    if exercise_group.training:
+        if exercise_group.training.training_type == "user":
+            if exercise_group.training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете загружать изображения только для групп своих тренировок")
+        elif exercise_group.training.training_type == "system":
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут загружать изображения для групп системных тренировок")
+    else:
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут загружать изображения для групп без привязки к тренировке")
     old_file_uuid = getattr(exercise_group.image, 'uuid', None)
     saved_file = await FileService.save_file(
         file=file,
@@ -274,11 +342,23 @@ async def upload_exercise_group_image(
 @router.delete("/{exercise_group_uuid}/delete-image", summary="Удалить изображение группы упражнений")
 async def delete_exercise_group_image(
     exercise_group_uuid: UUID,
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     exercise_group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
     if not exercise_group:
         raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    # Проверяем права доступа через тренировку
+    if exercise_group.training:
+        if exercise_group.training.training_type == "user":
+            if exercise_group.training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете удалять изображения только для групп своих тренировок")
+        elif exercise_group.training.training_type == "system":
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут удалять изображения для групп системных тренировок")
+    else:
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять изображения для групп без привязки к тренировке")
     
     if not exercise_group.image:
         raise HTTPException(status_code=404, detail="Изображение не найдено")
@@ -298,11 +378,23 @@ async def delete_exercise_group_image(
 async def add_exercise_to_group(
     exercise_group_uuid: UUID,
     exercise_uuid: UUID = Body(..., embed=True),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
     if not group:
         raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    # Проверяем права доступа через тренировку
+    if group.training:
+        if group.training.training_type == "user":
+            if group.training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете добавлять упражнения только в группы своих тренировок")
+        elif group.training.training_type == "system":
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут добавлять упражнения в группы системных тренировок")
+    else:
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут добавлять упражнения в группы без привязки к тренировке")
     exercises = group.get_exercises() if hasattr(group, 'get_exercises') else []
     if str(exercise_uuid) in exercises:
         return {"message": "Упражнение уже есть в группе"}
@@ -314,11 +406,23 @@ async def add_exercise_to_group(
 async def remove_exercise_from_group(
     exercise_group_uuid: UUID,
     exercise_uuid: UUID = Body(..., embed=True),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     group = await ExerciseGroupDAO.find_full_data(exercise_group_uuid)
     if not group:
         raise HTTPException(status_code=404, detail="Группа упражнений не найдена")
+    
+    # Проверяем права доступа через тренировку
+    if group.training:
+        if group.training.training_type == "user":
+            if group.training.user_id != user_data.id:
+                raise HTTPException(status_code=403, detail="Вы можете удалять упражнения только из групп своих тренировок")
+        elif group.training.training_type == "system":
+            if not user_data.is_admin:
+                raise HTTPException(status_code=403, detail="Только администраторы могут удалять упражнения из групп системных тренировок")
+    else:
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять упражнения из групп без привязки к тренировке")
     exercises = group.get_exercises() if hasattr(group, 'get_exercises') else []
     if str(exercise_uuid) not in exercises:
         return {"message": "Упражнения нет в группе"}
