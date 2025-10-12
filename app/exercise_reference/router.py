@@ -317,13 +317,21 @@ async def delete_exercise_reference_by_id(exercise_reference_uuid: UUID, user_da
 async def upload_exercise_reference_image(
     exercise_reference_uuid: UUID,
     file: UploadFile = File(...),
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     print(f"Начинаем загрузку изображения для exercise_reference: {exercise_reference_uuid}")
     
     exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
     if not exercise_reference:
         raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    # Проверяем права доступа
+    if exercise_reference.exercise_type == "user":
+        if not exercise_reference.user_id or exercise_reference.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете загружать изображения только для своих упражнений")
+    elif exercise_reference.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут загружать изображения для системных упражнений")
     
     print(f"Найден exercise_reference: {exercise_reference.id}")
     old_file_uuid = getattr(exercise_reference.image, 'uuid', None)
@@ -347,11 +355,19 @@ async def upload_exercise_reference_image(
 @router.delete('/{exercise_reference_uuid}/delete-image', summary='Удалить изображение справочника упражнения')
 async def delete_exercise_reference_image(
     exercise_reference_uuid: UUID,
-    user_data = Depends(get_current_admin_user)
+    user_data = Depends(get_current_user_user)
 ):
     exercise_reference = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
     if not exercise_reference:
         raise HTTPException(status_code=404, detail="Справочник упражнения не найден")
+    
+    # Проверяем права доступа
+    if exercise_reference.exercise_type == "user":
+        if not exercise_reference.user_id or exercise_reference.user_id != user_data.id:
+            raise HTTPException(status_code=403, detail="Вы можете удалять изображения только для своих упражнений")
+    elif exercise_reference.exercise_type == "system":
+        if not user_data.is_admin:
+            raise HTTPException(status_code=403, detail="Только администраторы могут удалять изображения для системных упражнений")
     
     if not exercise_reference.image:
         raise HTTPException(status_code=404, detail="Изображение не найдено")
