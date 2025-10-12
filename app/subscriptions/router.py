@@ -7,8 +7,9 @@ from typing import List
 from datetime import datetime, date
 import logging
 
-from app.users.dependencies import get_current_user
+from app.users.dependencies import get_current_user, get_current_admin_user
 from app.users.models import User
+from app.users.dao import UsersDAO
 from app.subscriptions.service import SubscriptionService
 from app.subscriptions.dao import SubscriptionPlanDAO, PaymentDAO, SubscriptionDAO
 from app.subscriptions.schemas import (
@@ -17,7 +18,9 @@ from app.subscriptions.schemas import (
     SPaymentStatus,
     SSubscriptionStatus,
     SSubscriptionPlanResponse,
-    STrialActivation
+    STrialActivation,
+    SExtendSubscription,
+    SExtendSubscriptionResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -307,4 +310,84 @@ async def get_payment_history(user: User = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Ошибка получения истории платежей"
+        )
+
+
+@router.post("/admin/extend", response_model=SExtendSubscriptionResponse)
+async def extend_subscription(
+    data: SExtendSubscription,
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    [ТОЛЬКО ДЛЯ АДМИНОВ] Продлить подписку пользователя на указанное количество дней
+    
+    Продлевает существующую активную подписку или создает новую, если подписка отсутствует/истекла.
+    """
+    try:
+        from datetime import timedelta
+        
+        # Находим пользователя
+        user = await UsersDAO.find_one_or_none(uuid=data.user_uuid)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Пользователь не найден"
+            )
+        
+        logger.info(f"Админ {admin.id} продлевает подписку пользователя {user.id} на {data.days} дней")
+        
+        # Сохраняем старую дату
+        old_expires_at = user.subscription_until
+        
+        # Определяем новую дату окончания подписки
+        today = date.today()
+        if user.subscription_status.value == 'active' and user.subscription_until and user.subscription_until >= today:
+            # Если подписка активна, продлеваем от текущей даты окончания
+            new_expires_at = user.subscription_until + timedelta(days=data.days)
+            logger.info(f"Продление активной подписки: {user.subscription_until} + {data.days} дней = {new_expires_at}")
+        else:
+            # Если нет активной подписки, начинаем от сегодня
+            new_expires_at = today + timedelta(days=data.days)
+            logger.info(f"Создание новой подписки: {today} + {data.days} дней = {new_expires_at}")
+        
+        # Обновляем пользователя
+        await UsersDAO.update(
+            user.uuid,
+            subscription_status='active',
+            subscription_until=new_expires_at
+        )
+        
+        # Создаем запись в subscriptions (без привязки к плану и платежу, так как это ручное продление)
+        started_at = datetime.utcnow()
+        expires_at = datetime.combine(new_expires_at, datetime.min.time())
+        
+        subscription_data = {
+            'user_id': user.id,
+            'plan_id': None,  # Ручное продление не привязано к плану
+            'payment_id': None,  # Ручное продление не привязано к платежу
+            'started_at': started_at,
+            'expires_at': expires_at,
+            'is_trial': False,
+            'auto_renew': False
+        }
+        
+        await SubscriptionDAO.add(**subscription_data)
+        
+        logger.info(f"Подписка пользователя {user.id} успешно продлена до {new_expires_at}")
+        
+        return {
+            "message": f"Подписка успешно продлена на {data.days} дней",
+            "user_uuid": data.user_uuid,
+            "old_expires_at": old_expires_at,
+            "new_expires_at": new_expires_at,
+            "days_added": data.days
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка продления подписки пользователя {data.user_uuid}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка продления подписки: {str(e)}"
         )

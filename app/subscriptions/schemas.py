@@ -79,3 +79,18 @@ class STrialActivation(BaseModel):
     subscription_uuid: UUID = Field(..., description="UUID подписки")
     expires_at: datetime = Field(..., description="Дата окончания триала")
     is_trial: bool = Field(True, description="Триальная подписка")
+
+
+class SExtendSubscription(BaseModel):
+    """Схема для продления подписки администратором"""
+    user_uuid: UUID = Field(..., description="UUID пользователя")
+    days: int = Field(..., ge=1, description="Количество дней для продления (минимум 1)")
+
+
+class SExtendSubscriptionResponse(BaseModel):
+    """Схема ответа при продлении подписки"""
+    message: str = Field(..., description="Сообщение")
+    user_uuid: UUID = Field(..., description="UUID пользователя")
+    old_expires_at: Optional[date] = Field(None, description="Предыдущая дата окончания")
+    new_expires_at: date = Field(..., description="Новая дата окончания")
+    days_added: int = Field(..., description="Добавлено дней")
