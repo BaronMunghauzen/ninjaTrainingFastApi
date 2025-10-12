@@ -1,6 +1,6 @@
 from fastapi import Request, HTTPException, status, Depends
 from jose import jwt, JWTError
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from app.config import get_auth_data
 from app.exceptions import TokenExpiredException, NoJwtException, NoUserIdException, ForbiddenException
 from app.users.dao import UsersDAO
@@ -38,18 +38,9 @@ async def get_current_user(token: str = Depends(get_token)):
 
 
 async def get_current_user_user(current_user: User = Depends(get_current_user)):
-    if not current_user.is_user:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Недостаточно прав!')
-    
-    # Админы имеют доступ всегда, для обычных пользователей проверяем подписку
-    if not current_user.is_admin:
-        if current_user.subscription_status != 'active':
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail='У вас нет активной подписки! Пожалуйста, оформите подписку для доступа к этому функционалу.'
-            )
-    
-    return current_user
+    if current_user.is_user:
+        return current_user
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Недостаточно прав!')
 
 
 async def get_current_admin_user(current_user: User = Depends(get_current_user)):
