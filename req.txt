@@ -14,3 +14,4 @@ ffmpeg
 fastapi-mail
 apscheduler
 loguru
+firebase-admin==6.5.0

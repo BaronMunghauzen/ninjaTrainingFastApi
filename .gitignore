@@ -27,6 +27,9 @@ uploads/
 .env
 .env.*
 
+# Firebase credentials
+firebase-credentials.json
+
 # OS files
 .DS_Store
 Thumbs.db

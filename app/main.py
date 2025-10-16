@@ -20,6 +20,7 @@ from app.achievements.router import router as router_achievements
 from app.password_reset.router import router as router_password_reset
 from app.user_measurements.router import router as router_user_measurements
 from app.subscriptions.router import router as router_subscriptions
+from app.notifications.router import router as router_notifications
 from app.logger import logger
 
 
@@ -32,11 +33,41 @@ async def lifespan(app: FastAPI):
     from app.background_tasks import start_scheduler
     start_scheduler()
     
+    # Инициализация Firebase и Scheduler сервисов
+    try:
+        from app.services.firebase_service import FirebaseService
+        from app.services.scheduler_service import SchedulerService
+        
+        # Инициализируем Firebase
+        try:
+            FirebaseService.initialize()
+            logger.info("✅ Firebase инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации Firebase: {e}")
+        
+        # Инициализируем Scheduler
+        try:
+            SchedulerService.initialize()
+            logger.info("✅ Scheduler инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации Scheduler: {e}")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации сервисов: {e}")
+    
     yield
     
     # Остановка приложения
     from app.background_tasks import stop_scheduler
     stop_scheduler()
+    
+    # Останавливаем Scheduler
+    try:
+        from app.services.scheduler_service import SchedulerService
+        SchedulerService.shutdown()
+        logger.info("✅ Scheduler остановлен")
+    except Exception as e:
+        logger.error(f"❌ Ошибка остановки Scheduler: {e}")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -140,6 +171,7 @@ app.include_router(router_achievements)
 app.include_router(router_password_reset)
 app.include_router(router_user_measurements)
 app.include_router(router_subscriptions)
+app.include_router(router_notifications)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

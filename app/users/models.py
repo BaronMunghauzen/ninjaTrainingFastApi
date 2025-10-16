@@ -65,6 +65,9 @@ class User(Base):
     # Поля для работы с подписками
     trial_used: Mapped[bool] = mapped_column(default=False, server_default=text('false'), nullable=False)
     trial_started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    
+    # FCM токен для push-уведомлений
+    fcm_token: Mapped[str | None] = mapped_column(nullable=True)
 
     # Определяем отношения с упражнениями
     exercises: Mapped[list["Exercise"]] = relationship("Exercise", back_populates="user")
@@ -138,4 +141,6 @@ class User(Base):
             # Добавляем поля для подписок
             "trial_used": self.trial_used,
             "trial_started_at": self.trial_started_at.isoformat() if self.trial_started_at else None,
+            # Добавляем FCM токен
+            "fcm_token": self.fcm_token,
         }
