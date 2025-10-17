@@ -167,11 +167,13 @@ async def test_notification(
         FirebaseService.initialize()
         
         # Отправляем тестовое уведомление НЕМЕДЛЕННО
-        success = FirebaseService.send_notification(
+        success = FirebaseService.send_notification_with_cleanup(
             fcm_token=user.fcm_token,
             title='Тестовое уведомление',
             body='Firebase настроен правильно! ✅',
-            data={'type': 'test'}
+            data={'type': 'test'},
+            user_uuid=user_uuid,
+            session=session
         )
         
         if success:
@@ -181,6 +183,43 @@ async def test_notification(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка: {str(e)}")
+
+
+@router.post("/clear-invalid-token")
+async def clear_invalid_token(
+    user_uuid: str,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Принудительная очистка невалидного FCM токена
+    
+    Вызывается когда приложение получает ошибку о невалидном токене
+    и нужно очистить токен в базе данных для запроса нового.
+    """
+    try:
+        result = await session.execute(
+            select(User).filter(User.uuid == user_uuid)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        
+        # Очищаем токен
+        old_token = user.fcm_token
+        user.fcm_token = None
+        await session.commit()
+        
+        return {
+            "status": "success",
+            "message": "FCM токен очищен",
+            "user_uuid": user_uuid,
+            "old_token_preview": old_token[:20] + "..." if old_token else None
+        }
+        
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка очистки токена: {str(e)}")
 
 
 @router.get("/scheduled-jobs")
