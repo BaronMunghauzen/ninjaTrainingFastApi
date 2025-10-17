@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.user_exercises.dao import UserExerciseDAO
 from app.user_exercises.rb import RBUserExercise
-from app.user_exercises.schemas import SUserExercise, SUserExerciseAdd, SUserExerciseUpdate
+from app.user_exercises.schemas import SUserExercise, SUserExerciseAdd, SUserExerciseUpdate, SBatchSetPassedRequest, SBatchSetPassedResponse
 from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
@@ -314,3 +314,39 @@ async def get_last_user_exercises(
     # Находим самую позднюю из предыдущих
     last_ex = max(prev_exs, key=lambda ue: ue.training_date)
     return last_ex.to_dict()
+
+
+@router.patch("/batch_set_passed", summary="Batch установка статуса PASSED для множества упражнений")
+async def batch_set_user_exercises_passed(
+    request: SBatchSetPassedRequest,
+    user_data = Depends(get_current_user_user)
+) -> SBatchSetPassedResponse:
+    """
+    Batch установка статуса PASSED для множества пользовательских упражнений
+    
+    Позволяет установить статус PASSED для нескольких упражнений одним запросом.
+    Полезно для массовых операций после завершения тренировки.
+    
+    Args:
+        request: Список UUID пользовательских упражнений
+        user_data: Данные текущего пользователя
+        
+    Returns:
+        SBatchSetPassedResponse: Детальный результат операции
+    """
+    try:
+        # Вызываем batch метод из DAO
+        result = await UserExerciseDAO.batch_set_passed(request.user_exercise_uuids)
+        
+        return SBatchSetPassedResponse(**result)
+        
+    except Exception as e:
+        # В случае общей ошибки возвращаем все как неудачные
+        return SBatchSetPassedResponse(
+            success_count=0,
+            failed_count=len(request.user_exercise_uuids),
+            total_count=len(request.user_exercise_uuids),
+            success_uuids=[],
+            failed_uuids=request.user_exercise_uuids,
+            errors=[f"Общая ошибка batch операции: {str(e)}"]
+        )

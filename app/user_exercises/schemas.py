@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List
 import re
 from pydantic import BaseModel, Field, EmailStr, validator, ConfigDict, field_validator
 from uuid import UUID
@@ -42,3 +42,32 @@ class SUserExerciseUpdate(BaseModel):
     set_number: Optional[int] = Field(None, ge=1, description="Номер подхода")
     weight: Optional[float] = Field(None, ge=0, description="Вес в кг")
     reps: Optional[int] = Field(None, ge=0, description="Количество повторений")
+
+
+class SBatchSetPassedRequest(BaseModel):
+    """Схема для batch установки статуса PASSED"""
+    user_exercise_uuids: List[UUID] = Field(
+        ..., 
+        min_items=1, 
+        max_items=100,  # Ограничиваем размер batch для производительности
+        description="Список UUID пользовательских упражнений для установки статуса PASSED"
+    )
+    
+    @field_validator('user_exercise_uuids')
+    @classmethod
+    def validate_uuids(cls, v):
+        if not v:
+            raise ValueError('Список UUID не может быть пустым')
+        if len(set(v)) != len(v):
+            raise ValueError('UUID не должны повторяться')
+        return v
+
+
+class SBatchSetPassedResponse(BaseModel):
+    """Схема ответа для batch установки статуса PASSED"""
+    success_count: int = Field(..., description="Количество успешно обновленных упражнений")
+    failed_count: int = Field(..., description="Количество неудачных обновлений")
+    total_count: int = Field(..., description="Общее количество переданных UUID")
+    success_uuids: List[UUID] = Field(..., description="Список успешно обновленных UUID")
+    failed_uuids: List[UUID] = Field(..., description="Список неудачных UUID")
+    errors: List[str] = Field(default_factory=list, description="Список ошибок")
