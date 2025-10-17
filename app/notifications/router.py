@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 from typing import Optional
 import uuid as uuid_lib
@@ -94,10 +95,11 @@ async def schedule_timer(
             )
         
         # Вычисляем время когда нужно отправить уведомление
-        scheduled_time = datetime.utcnow() + timedelta(seconds=request.duration_seconds)
+        # Используем UTC timezone для корректной работы с APScheduler
+        scheduled_time = datetime.now(ZoneInfo('UTC')) + timedelta(seconds=request.duration_seconds)
         
         # Создаем уникальный ID задачи
-        job_id = f"timer_{request.user_uuid}_{request.exercise_uuid}_{int(datetime.utcnow().timestamp())}"
+        job_id = f"timer_{request.user_uuid}_{request.exercise_uuid}_{int(datetime.now(ZoneInfo('UTC')).timestamp())}"
         
         # Планируем задачу через Scheduler
         SchedulerService.schedule_timer_notification(

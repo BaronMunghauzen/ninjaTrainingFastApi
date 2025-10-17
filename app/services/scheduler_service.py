@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,9 +13,10 @@ class SchedulerService:
     def initialize(cls):
         """Инициализация scheduler"""
         if cls._scheduler is None:
-            cls._scheduler = BackgroundScheduler()
+            # Настраиваем scheduler с UTC timezone
+            cls._scheduler = BackgroundScheduler(timezone='UTC')
             cls._scheduler.start()
-            logger.info("✅ APScheduler запущен")
+            logger.info("✅ APScheduler запущен с UTC timezone")
     
     @classmethod
     def schedule_timer_notification(
@@ -57,7 +59,12 @@ class SchedulerService:
                 misfire_grace_time=30,  # Если задержка до 30 сек - все равно выполнить
             )
             
-            logger.info(f"✅ Задача запланирована: {job_id} на {scheduled_time}")
+            # Логируем время в разных форматах для диагностики
+            utc_time = scheduled_time.astimezone(ZoneInfo('UTC'))
+            msk_time = scheduled_time.astimezone(ZoneInfo('Europe/Moscow'))
+            logger.info(f"✅ Задача запланирована: {job_id}")
+            logger.info(f"   UTC время: {utc_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"   MSK время: {msk_time.strftime('%Y-%m-%d %H:%M:%S')}")
             
         except Exception as e:
             logger.error(f"❌ Ошибка планирования задачи: {e}")
