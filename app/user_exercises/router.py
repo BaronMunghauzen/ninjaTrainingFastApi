@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.user_exercises.dao import UserExerciseDAO
 from app.user_exercises.rb import RBUserExercise
-from app.user_exercises.schemas import SUserExercise, SUserExerciseAdd, SUserExerciseUpdate, SBatchSetPassedRequest, SBatchSetPassedResponse
+from app.user_exercises.schemas import SUserExercise, SUserExerciseAdd, SUserExerciseUpdate, SBatchSetPassedRequest, SBatchSetPassedResponse, SGetLastUserExercisesRequest
 from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
@@ -271,44 +271,59 @@ async def set_user_exercise_passed(user_exercise_uuid: UUID, user_data = Depends
 
 @router.get("/utils/getLastUserExercises", summary="Получить предыдущую тренировку по параметрам")
 async def get_last_user_exercises(
-    program_uuid: UUID = Query(None),
-    training_uuid: UUID = Query(...),
-    user_uuid: UUID = Query(...),
-    set_number: int = Query(...),
-    exercise_uuid: UUID = Query(...),
-    training_date: str = Query(...),
+    request: SGetLastUserExercisesRequest = Depends(),
     user_data = Depends(get_current_user_user)
 ) -> dict:
     from datetime import datetime
     # Получаем id по uuid
     program = None
-    if program_uuid:
-        program = await ProgramDAO.find_one_or_none(uuid=program_uuid)
+    if request.program_uuid:
+        program = await ProgramDAO.find_one_or_none(uuid=request.program_uuid)
         if program is None:
             return {"message": "Программа не найдена"}
-    training = await TrainingDAO.find_one_or_none(uuid=training_uuid)
-    user = await UsersDAO.find_one_or_none(uuid=user_uuid)
-    exercise = await ExerciseDAO.find_one_or_none(uuid=exercise_uuid)
-    if training is None:
-        return {"message": "Тренировка не найдена"}
+    training = None
+    if request.training_uuid:
+        training = await TrainingDAO.find_one_or_none(uuid=request.training_uuid)
+        if training is None:
+            return {"message": "Тренировка не найдена"}
+    
+    user = await UsersDAO.find_one_or_none(uuid=request.user_uuid)
+    exercise = await ExerciseDAO.find_one_or_none(uuid=request.exercise_uuid)
     if user is None:
         return {"message": "Пользователь не найден"}
     if exercise is None:
         return {"message": "Упражнение не найдено"}
+    
+    # Получаем exercise_reference_id из упражнения
+    exercise_reference_id = exercise.exercise_reference_id
+    if exercise_reference_id is None:
+        return {"message": "У упражнения не указан exercise_reference"}
+    
     try:
-        date_obj = datetime.fromisoformat(training_date).date()
+        date_obj = datetime.fromisoformat(request.training_date).date()
     except Exception:
         return {"message": "Некорректный формат даты"}
-    # Ищем предыдущую user_exercise
-    user_exercises = await UserExerciseDAO.find_all(
+    
+    # Находим все упражнения с тем же exercise_reference_id
+    exercises_with_same_reference = await ExerciseDAO.find_all(exercise_reference_id=exercise_reference_id)
+    exercise_ids = [ex.id for ex in exercises_with_same_reference]
+    
+    if not exercise_ids:
+        return {"message": "Не найдено упражнений с таким exercise_reference"}
+    
+    # Ищем предыдущие user_exercises по всем упражнениям с тем же exercise_reference
+    search_params = {
         **({"program_id": program.id} if program else {}),
-        training_id=training.id,
-        user_id=user.id,
-        exercise_id=exercise.id,
-        set_number=set_number
-    )
-    # Фильтруем по дате
-    prev_exs = [ue for ue in user_exercises if ue.training_date < date_obj]
+        **({"training_id": training.id} if training else {}),
+        "user_id": user.id,
+        "set_number": request.set_number
+    }
+    user_exercises = await UserExerciseDAO.find_all(**search_params)
+    # Фильтруем по дате и по упражнениям с тем же exercise_reference
+    prev_exs = [
+        ue for ue in user_exercises 
+        if ue.training_date < date_obj and ue.exercise_id in exercise_ids
+    ]
     if not prev_exs:
         return {"message": "Нет предыдущей тренировки"}
     # Находим самую позднюю из предыдущих

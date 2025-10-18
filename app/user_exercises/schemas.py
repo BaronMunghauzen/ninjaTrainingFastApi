@@ -22,7 +22,7 @@ class SUserExercise(BaseModel):
 
 class SUserExerciseAdd(BaseModel):
     program_uuid: Optional[str] = Field(None, description="UUID программы")
-    training_uuid: str = Field(..., description="UUID тренировки")
+    training_uuid: Optional[str] = Field(None, description="UUID тренировки")
     user_uuid: str = Field(..., description="UUID пользователя")
     exercise_uuid: str = Field(..., description="UUID упражнения")
     training_date: date = Field(..., description="Дата тренировки")
@@ -71,3 +71,13 @@ class SBatchSetPassedResponse(BaseModel):
     success_uuids: List[UUID] = Field(..., description="Список успешно обновленных UUID")
     failed_uuids: List[UUID] = Field(..., description="Список неудачных UUID")
     errors: List[str] = Field(default_factory=list, description="Список ошибок")
+
+
+class SGetLastUserExercisesRequest(BaseModel):
+    """Схема запроса для получения предыдущих упражнений пользователя"""
+    program_uuid: Optional[UUID] = Field(None, description="UUID программы")
+    training_uuid: Optional[UUID] = Field(None, description="UUID тренировки")
+    user_uuid: UUID = Field(..., description="UUID пользователя")
+    set_number: int = Field(..., ge=1, description="Номер подхода")
+    exercise_uuid: UUID = Field(..., description="UUID упражнения")
+    training_date: str = Field(..., description="Дата тренировки в формате ISO")

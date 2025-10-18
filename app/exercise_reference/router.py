@@ -1,9 +1,10 @@
 from uuid import UUID
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from app.exercise_reference.dao import ExerciseReferenceDAO
 from app.exercise_reference.models import ExerciseReference
 from app.exercise_reference.rb import RBExerciseReference
-from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate, SPaginationResponse, SExerciseStatistics
+from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate, SPaginationResponse, SExerciseStatistics, SExerciseFilters
 from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.files.dao import FilesDAO
 from app.files.service import FileService
@@ -52,17 +53,31 @@ async def get_all_exercise_references(
 
 @router.get('/search/by-caption', summary='Поиск справочника упражнений по части названия (caption)')
 async def search_exercise_reference_by_caption(
-    caption: str = Query(..., description="Часть названия упражнения (поиск без учета регистра)"),
+    caption: Optional[str] = Query(None, description="Часть названия упражнения (поиск без учета регистра)"),
+    muscle_groups: Optional[str] = Query(None, description="Фильтр по группам мышц (список через запятую, поиск в muscle_group и auxiliary_muscle_groups)"),
+    equipment_names: Optional[str] = Query(None, description="Фильтр по названиям оборудования (список через запятую)"),
     page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
     size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
     request_body: RBExerciseReference = Depends(),
     user_data = Depends(get_current_user_user)
 ) -> SPaginationResponse:
     filters = request_body.to_dict()
+    
+    # Обрабатываем списки фильтров
+    muscle_groups_list = None
+    if muscle_groups and muscle_groups.strip():
+        muscle_groups_list = [mg.strip() for mg in muscle_groups.split(',') if mg.strip()]
+    
+    equipment_names_list = None
+    if equipment_names and equipment_names.strip():
+        equipment_names_list = [en.strip() for en in equipment_names.split(',') if en.strip()]
+    
     result = await ExerciseReferenceDAO.find_by_caption_paginated(
-        caption=caption, 
+        caption=caption or "", 
         page=page, 
-        size=size, 
+        size=size,
+        muscle_groups_filter=muscle_groups_list,
+        equipment_names_filter=equipment_names_list,
         **filters
     )
     
@@ -120,7 +135,9 @@ async def get_available_exercises(
 @router.get('/available/{user_uuid}/search/by-caption', summary='Поиск доступных упражнений по части названия (caption)')
 async def search_available_exercises_by_caption(
     user_uuid: UUID,
-    caption: str = Query(..., description="Часть названия упражнения (поиск без учета регистра)"),
+    caption: Optional[str] = Query(None, description="Часть названия упражнения (поиск без учета регистра)"),
+    muscle_groups: Optional[str] = Query(None, description="Фильтр по группам мышц (список через запятую, поиск в muscle_group и auxiliary_muscle_groups)"),
+    equipment_names: Optional[str] = Query(None, description="Фильтр по названиям оборудования (список через запятую)"),
     page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
     size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
     user_data = Depends(get_current_user_user)
@@ -139,12 +156,23 @@ async def search_available_exercises_by_caption(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     
+    # Обрабатываем списки фильтров
+    muscle_groups_list = None
+    if muscle_groups and muscle_groups.strip():
+        muscle_groups_list = [mg.strip() for mg in muscle_groups.split(',') if mg.strip()]
+    
+    equipment_names_list = None
+    if equipment_names and equipment_names.strip():
+        equipment_names_list = [en.strip() for en in equipment_names.split(',') if en.strip()]
+    
     # Получаем доступные упражнения по caption с пагинацией
     result = await ExerciseReferenceDAO.search_by_caption_paginated(
-        search_query=caption,
+        search_query=caption or "",
         user_id=user.id,
         page=page,
-        size=size
+        size=size,
+        muscle_groups_filter=muscle_groups_list,
+        equipment_names_filter=equipment_names_list
     )
     
     # Преобразуем объекты в словари для ответа
@@ -156,6 +184,51 @@ async def search_available_exercises_by_caption(
         page=result["page"],
         size=result["size"],
         pages=result["pages"]
+    )
+
+@router.get('/filters/{user_uuid}', summary='Получить фильтры для упражнений пользователя')
+async def get_exercise_filters(
+    user_uuid: UUID,
+    user_data = Depends(get_current_user_user)
+) -> SExerciseFilters:
+    """
+    Получить фильтры для упражнений пользователя:
+    - Список уникальных групп мышц
+    - Список уникальных названий оборудования
+    """
+    # Проверяем права доступа - пользователь может получить фильтры только для себя
+    if str(user_uuid) != str(user_data.uuid):
+        raise HTTPException(status_code=403, detail="Вы можете получить фильтры только для своего профиля")
+    
+    # Получаем ID пользователя
+    user = await UsersDAO.find_one_or_none(uuid=user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Получаем фильтры
+    filters = await ExerciseReferenceDAO.get_exercise_filters(user_id=user.id)
+    
+    return SExerciseFilters(
+        muscle_groups=filters["muscle_groups"],
+        equipment_names=filters["equipment_names"]
+    )
+
+@router.get('/system/filters', summary='Получить фильтры для системных упражнений')
+async def get_system_exercise_filters(
+    user_data = Depends(get_current_user_user)
+) -> SExerciseFilters:
+    """
+    Получить фильтры для системных упражнений:
+    - Список уникальных групп мышц
+    - Список уникальных названий оборудования
+    Только для упражнений с exercise_type = "system"
+    """
+    # Получаем фильтры только для системных упражнений
+    filters = await ExerciseReferenceDAO.get_system_exercise_filters()
+    
+    return SExerciseFilters(
+        muscle_groups=filters["muscle_groups"],
+        equipment_names=filters["equipment_names"]
     )
 
 @router.get('/{exercise_reference_uuid}', summary='Получить упражнение справочника по uuid')

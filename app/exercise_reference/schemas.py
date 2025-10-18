@@ -12,6 +12,8 @@ class SExerciseReference(BaseModel):
     description: Optional[str] = Field(None, description="Описание упражнения")
     technique_description: Optional[str] = Field(None, description="Техника выполнения упражнения")
     muscle_group: str = Field(..., description="Группа мышц")
+    equipment_name: Optional[str] = Field(None, description="Название необходимого оборудования")
+    auxiliary_muscle_groups: Optional[str] = Field(None, description="Вспомогательные группы мышц")
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
     video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
     gif_uuid: Optional[str] = Field(None, description="UUID гифки (files)")
@@ -25,6 +27,8 @@ class SExerciseReferenceAdd(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     technique_description: Optional[str] = Field(None, max_length=1000, description="Техника выполнения упражнения")
     muscle_group: str = Field(..., min_length=1, max_length=50, description="Группа мышц")
+    equipment_name: Optional[str] = Field(None, max_length=100, description="Название необходимого оборудования")
+    auxiliary_muscle_groups: Optional[str] = Field(None, max_length=200, description="Вспомогательные группы мышц")
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
     video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
     gif_uuid: Optional[str] = Field(None, description="UUID гифки (files)")
@@ -36,6 +40,8 @@ class SExerciseReferenceUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     technique_description: Optional[str] = Field(None, max_length=1000, description="Техника выполнения упражнения")
     muscle_group: Optional[str] = Field(None, min_length=1, max_length=50, description="Группа мышц")
+    equipment_name: Optional[str] = Field(None, max_length=100, description="Название необходимого оборудования")
+    auxiliary_muscle_groups: Optional[str] = Field(None, max_length=200, description="Вспомогательные группы мышц")
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
     video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
     gif_uuid: Optional[str] = Field(None, description="UUID гифки (files)")
@@ -61,4 +67,10 @@ class SExerciseStatistics(BaseModel):
     user_uuid: str = Field(..., description="UUID пользователя")
     max_sets_per_day: int = Field(..., description="Максимальное количество подходов в одном дне")
     total_training_days: int = Field(..., description="Общее количество дней тренировок по этому упражнению")
-    history: list[SExerciseHistory] = Field(..., description="История выполнения упражнения") 
+    history: list[SExerciseHistory] = Field(..., description="История выполнения упражнения")
+
+
+class SExerciseFilters(BaseModel):
+    """Схема для ответа с фильтрами упражнений"""
+    muscle_groups: list[str] = Field(..., description="Список уникальных групп мышц")
+    equipment_names: list[str] = Field(..., description="Список уникальных названий оборудования") 

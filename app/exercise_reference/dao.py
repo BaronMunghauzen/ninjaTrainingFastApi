@@ -171,7 +171,7 @@ class ExerciseReferenceDAO(BaseDAO):
             return objects
 
     @classmethod
-    async def find_by_caption_paginated(cls, *, caption: str, page: int = 1, size: int = 20, **filter_by):
+    async def find_by_caption_paginated(cls, *, caption: str, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, **filter_by):
         """Поиск по caption с пагинацией"""
         filters = filter_by.copy()
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
@@ -186,7 +186,6 @@ class ExerciseReferenceDAO(BaseDAO):
         async with async_session_maker() as session:
             # Базовый запрос для подсчета общего количества
             count_query = select(func.count(cls.model.id)).filter(
-                func.lower(cls.model.caption).like(f"%{caption.lower()}%"),
                 *[getattr(cls.model, k) == v for k, v in filters.items()]
             )
             
@@ -197,9 +196,41 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.gif),
                 joinedload(cls.model.user)
             ).filter(
-                func.lower(cls.model.caption).like(f"%{caption.lower()}%"),
                 *[getattr(cls.model, k) == v for k, v in filters.items()]
             )
+            
+            # Добавляем фильтр по caption только если он не пустой
+            if caption and caption.strip():
+                caption_filter = func.lower(cls.model.caption).like(f"%{caption.lower()}%")
+                count_query = count_query.filter(caption_filter)
+                data_query = data_query.filter(caption_filter)
+            
+            # Добавляем фильтр по группам мышц если они переданы
+            if muscle_groups_filter and len(muscle_groups_filter) > 0:
+                from sqlalchemy import or_
+                muscle_conditions = []
+                for muscle_group in muscle_groups_filter:
+                    muscle_conditions.append(
+                        or_(
+                            func.lower(cls.model.muscle_group).like(f"%{muscle_group.lower()}%"),
+                            func.lower(cls.model.auxiliary_muscle_groups).like(f"%{muscle_group.lower()}%")
+                        )
+                    )
+                muscle_filter = or_(*muscle_conditions)
+                count_query = count_query.filter(muscle_filter)
+                data_query = data_query.filter(muscle_filter)
+            
+            # Добавляем фильтр по названиям оборудования если они переданы
+            if equipment_names_filter and len(equipment_names_filter) > 0:
+                from sqlalchemy import or_
+                equipment_conditions = []
+                for equipment_name in equipment_names_filter:
+                    equipment_conditions.append(
+                        func.lower(cls.model.equipment_name).like(f"%{equipment_name.lower()}%")
+                    )
+                equipment_filter = or_(*equipment_conditions)
+                count_query = count_query.filter(equipment_filter)
+                data_query = data_query.filter(equipment_filter)
             
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
@@ -236,7 +267,7 @@ class ExerciseReferenceDAO(BaseDAO):
             }
 
     @classmethod
-    async def search_by_caption_paginated(cls, *, search_query: str, user_id: int, page: int = 1, size: int = 20):
+    async def search_by_caption_paginated(cls, *, search_query: str, user_id: int, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None):
         """Поиск по caption с учетом exercise_type и user_id с пагинацией"""
         from sqlalchemy import or_
         
@@ -266,6 +297,31 @@ class ExerciseReferenceDAO(BaseDAO):
             if search_query.strip():
                 count_query = count_query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
                 data_query = data_query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
+            
+            # Добавляем фильтр по группам мышц если они переданы
+            if muscle_groups_filter and len(muscle_groups_filter) > 0:
+                muscle_conditions = []
+                for muscle_group in muscle_groups_filter:
+                    muscle_conditions.append(
+                        or_(
+                            func.lower(cls.model.muscle_group).like(f"%{muscle_group.lower()}%"),
+                            func.lower(cls.model.auxiliary_muscle_groups).like(f"%{muscle_group.lower()}%")
+                        )
+                    )
+                muscle_filter = or_(*muscle_conditions)
+                count_query = count_query.filter(muscle_filter)
+                data_query = data_query.filter(muscle_filter)
+            
+            # Добавляем фильтр по названиям оборудования если они переданы
+            if equipment_names_filter and len(equipment_names_filter) > 0:
+                equipment_conditions = []
+                for equipment_name in equipment_names_filter:
+                    equipment_conditions.append(
+                        func.lower(cls.model.equipment_name).like(f"%{equipment_name.lower()}%")
+                    )
+                equipment_filter = or_(*equipment_conditions)
+                count_query = count_query.filter(equipment_filter)
+                data_query = data_query.filter(equipment_filter)
             
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
@@ -299,6 +355,65 @@ class ExerciseReferenceDAO(BaseDAO):
                 "page": page,
                 "size": size,
                 "pages": pages
+            }
+
+    @classmethod
+    async def get_exercise_filters(cls, *, user_id: int):
+        """Получить фильтры для упражнений пользователя"""
+        from sqlalchemy import or_, distinct
+        
+        async with async_session_maker() as session:
+            # Запрос для получения всех доступных упражнений
+            query = select(cls.model).filter(
+                or_(
+                    cls.model.exercise_type == "system",
+                    (cls.model.exercise_type == "user") & (cls.model.user_id == user_id)
+                )
+            )
+            
+            result = await session.execute(query)
+            exercises = result.scalars().all()
+            
+            # Извлекаем уникальные значения
+            muscle_groups = set()
+            equipment_names = set()
+            
+            for exercise in exercises:
+                if exercise.muscle_group:
+                    muscle_groups.add(exercise.muscle_group)
+                if exercise.equipment_name:
+                    equipment_names.add(exercise.equipment_name)
+            
+            return {
+                "muscle_groups": sorted(list(muscle_groups)),
+                "equipment_names": sorted(list(equipment_names))
+            }
+
+    @classmethod
+    async def get_system_exercise_filters(cls):
+        """Получить фильтры только для системных упражнений"""
+        async with async_session_maker() as session:
+            # Запрос для получения только системных упражнений
+            query = select(cls.model).filter(
+                cls.model.exercise_type == "system"
+            )
+            
+            result = await session.execute(query)
+            exercises = result.scalars().all()
+            
+            # Извлекаем уникальные значения
+            muscle_groups = set()
+            equipment_names = set()
+            
+            for exercise in exercises:
+                if exercise.muscle_group:
+                    muscle_groups.add(exercise.muscle_group)
+                if exercise.equipment_name:
+                    equipment_names.add(exercise.equipment_name)
+            
+            return {
+                "muscle_groups": sorted(list(muscle_groups)),
+                "equipment_names": sorted(list(equipment_names))
             }
 
     @classmethod
