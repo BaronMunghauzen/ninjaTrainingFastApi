@@ -57,6 +57,8 @@ class SExerciseSet(BaseModel):
     set_number: int = Field(..., description="Номер подхода")
     reps: int = Field(..., description="Количество повторений")
     weight: Optional[float] = Field(None, description="Вес")
+    training_uuid: Optional[str] = Field(None, description="UUID тренировки")
+    exercise_uuid: Optional[str] = Field(None, description="UUID упражнения")
 
 class SExerciseHistory(BaseModel):
     training_date: str = Field(..., description="Дата тренировки")

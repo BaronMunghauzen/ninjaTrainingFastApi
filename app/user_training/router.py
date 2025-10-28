@@ -466,3 +466,76 @@ async def skip_user_training(user_training_uuid: UUID, user_data = Depends(get_c
         response["next_stage_created"] = False
     
     return response
+
+
+@router.get("/active/userFree/{user_uuid}", summary="Получить активные пользовательские бесплатные тренировки")
+async def get_active_user_free_trainings(
+    user_uuid: UUID,
+    user_data = Depends(get_current_user_user)
+) -> list[dict]:
+    """
+    Получить все активные пользовательские бесплатные тренировки для указанного пользователя.
+    Ищет записи в trainings и user_trainings, где:
+    - trainings.training_type = 'userFree'
+    - trainings.user_id соответствует указанному пользователю
+    - user_trainings.status = 'ACTIVE'
+    """
+    # Проверяем права доступа - пользователь может получить только свои тренировки
+    if str(user_uuid) != str(user_data.uuid):
+        raise HTTPException(status_code=403, detail="Вы можете получить тренировки только для своего профиля")
+    
+    # Получаем активные бесплатные тренировки
+    user_trainings = await UserTrainingDAO.find_user_free_active_trainings(user_uuid)
+    
+    if not user_trainings:
+        return []
+    
+    # Формируем ответ
+    result = []
+    for ut in user_trainings:
+        try:
+            # Получаем тренировку
+            training_data = None
+            if ut.training:
+                training_data = {
+                    "uuid": str(ut.training.uuid),
+                    "training_type": ut.training.training_type,
+                    "caption": ut.training.caption,
+                    "description": ut.training.description,
+                    "difficulty_level": ut.training.difficulty_level,
+                    "duration": ut.training.duration,
+                    "order": ut.training.order,
+                    "muscle_group": ut.training.muscle_group,
+                    "stage": ut.training.stage,
+                    "image_uuid": str(ut.training.image.uuid) if hasattr(ut.training, 'image') and ut.training.image else None,
+                    "actual": ut.training.actual
+                }
+            
+            # Получаем пользователя
+            user_info = None
+            if ut.user:
+                user_info = await ut.user.to_dict()
+            
+            # Формируем данные user_training
+            data = {
+                "uuid": str(ut.uuid),
+                "training_date": ut.training_date.isoformat() if ut.training_date else None,
+                "status": ut.status.value,
+                "stage": ut.stage,
+                "week": ut.week,
+                "weekday": ut.weekday,
+                "is_rest_day": ut.is_rest_day,
+                "completed_at": ut.completed_at.isoformat() if ut.completed_at else None,
+                "skipped_at": ut.skipped_at.isoformat() if ut.skipped_at else None,
+                "training": training_data,
+                "user": user_info
+            }
+            
+            result.append(data)
+        except Exception as ex:
+            print(f"Ошибка при обработке user_training {ut.id}: {ex}")
+            import traceback
+            traceback.print_exc()
+            continue
+    
+    return result

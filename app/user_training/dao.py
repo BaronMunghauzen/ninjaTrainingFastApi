@@ -682,3 +682,54 @@ class UserTrainingDAO(BaseDAO):
             
             # Требуем минимум 80% недель (примерно 42 недели из 52)
             return qualifying_weeks >= 42
+    
+    @classmethod
+    async def find_user_free_active_trainings(cls, user_uuid: UUID):
+        """
+        Находит записи в user_trainings для тренировок с типом 'userFree',
+        принадлежащих указанному пользователю и имеющих статус ACTIVE.
+        """
+        from app.trainings.models import Training
+        from app.files.models import File
+        from app.users.models import User
+        from sqlalchemy.orm import joinedload
+        
+        async with async_session_maker() as session:
+            # Сначала получаем user_id по user_uuid
+            from app.users.dao import UsersDAO
+            user = await UsersDAO.find_one_or_none(uuid=user_uuid)
+            if not user:
+                return []
+            
+            # Ищем user_trainings с джойном training таблицы
+            query = (
+                select(cls.model)
+                .join(Training, cls.model.training_id == Training.id)
+                .options(
+                    joinedload(cls.model.training).joinedload(Training.image),
+                    joinedload(cls.model.user).joinedload(User.avatar)
+                )
+                .filter(
+                    Training.training_type == 'userFree',
+                    Training.user_id == user.id,
+                    cls.model.status == 'ACTIVE'
+                )
+            )
+            
+            result = await session.execute(query)
+            user_trainings = result.unique().scalars().all()
+            
+            # Отключаем объекты от сессии
+            for ut in user_trainings:
+                session.expunge(ut)
+                # Также отключаем связанные объекты
+                if ut.training:
+                    session.expunge(ut.training)
+                    if hasattr(ut.training, 'image') and ut.training.image:
+                        session.expunge(ut.training.image)
+                if ut.user:
+                    session.expunge(ut.user)
+                    if hasattr(ut.user, 'avatar') and ut.user.avatar:
+                        session.expunge(ut.user.avatar)
+            
+            return user_trainings
