@@ -455,6 +455,9 @@ class ExerciseReferenceDAO(BaseDAO):
             
             exercise_ids = [ex.id for ex in exercises]
             
+            # Создаем словарь для быстрого доступа к uuid упражнений
+            exercise_id_to_uuid = {ex.id: str(ex.uuid) for ex in exercises}
+            
             # Получаем все записи user_exercise для этих упражнений с фильтром по пользователю и статусу PASSED
             user_exercises_query = select(UserExercise).filter(
                 UserExercise.exercise_id.in_(exercise_ids),
@@ -465,22 +468,42 @@ class ExerciseReferenceDAO(BaseDAO):
             user_exercises_result = await session.execute(user_exercises_query)
             user_exercises = user_exercises_result.scalars().all()
             
-            # Группируем по дате тренировки
-            history_by_date = defaultdict(list)
+            # Получаем все уникальные training_id
+            training_ids = list(set(ue.training_id for ue in user_exercises if ue.training_id))
+            
+            # Получаем uuid тренировок
+            from app.trainings.models import Training
+            training_id_to_uuid = {}
+            if training_ids:
+                trainings_query = select(Training).filter(Training.id.in_(training_ids))
+                trainings_result = await session.execute(trainings_query)
+                trainings = trainings_result.scalars().all()
+                training_id_to_uuid = {t.id: str(t.uuid) for t in trainings}
+            
+            # Группируем по уникальной комбинации (training_date, training_id, exercise_id)
+            history_by_group = defaultdict(list)
             for ue in user_exercises:
-                history_by_date[ue.training_date].append({
+                # Генерируем уникальный ключ для группировки
+                key = (ue.training_date, ue.training_id, ue.exercise_id)
+                history_by_group[key].append({
                     "set_number": ue.set_number,
                     "reps": ue.reps,
-                    "weight": ue.weight
+                    "weight": ue.weight,
+                    "training_uuid": training_id_to_uuid.get(ue.training_id),
+                    "exercise_uuid": exercise_id_to_uuid.get(ue.exercise_id)
                 })
             
             # Формируем результат и вычисляем статистику
             history = []
             max_sets_per_day = 0
-            total_training_days = len(history_by_date)
             
-            for training_date in sorted(history_by_date.keys(), reverse=True):  # От новых к старым
-                sets = sorted(history_by_date[training_date], key=lambda x: x["set_number"])
+            # Сортируем группы по дате (от новых к старым)
+            sorted_groups = sorted(history_by_group.keys(), key=lambda x: (x[0], x[1], x[2]), reverse=True)
+            
+            for training_date, training_id, exercise_id in sorted_groups:
+                sets = history_by_group[(training_date, training_id, exercise_id)]
+                # Сортируем подходы по номеру подхода
+                sets = sorted(sets, key=lambda x: x["set_number"])
                 sets_count = len(sets)
                 
                 # Обновляем максимальное количество подходов
@@ -491,6 +514,10 @@ class ExerciseReferenceDAO(BaseDAO):
                     "training_date": training_date.isoformat(),
                     "sets": sets
                 })
+            
+            # Подсчитываем количество уникальных дней (по training_date)
+            unique_dates = set(training_date for training_date, _, _ in history_by_group.keys())
+            total_training_days = len(unique_dates)
             
             return {
                 "exercise_reference_uuid": str(exercise_reference_uuid),
