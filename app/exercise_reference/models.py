@@ -12,6 +12,7 @@ class ExerciseReference(Base):
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
     caption: Mapped[str]
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    original_name: Mapped[Optional[str]] = mapped_column(nullable=True)
     technique_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     muscle_group: Mapped[str]
     equipment_name: Mapped[Optional[str]] = mapped_column(nullable=True)
