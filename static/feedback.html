@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Обратная связь — NinjaTraining</title>
+    <meta name="color-scheme" content="dark light" />
+    <style>
+        :root {
+            --bg: #0e0f12;
+            --panel: #15171c;
+            --panel-2: #1b1f27;
+            --text: #e6e7ea;
+            --muted: #a8adbb;
+            --primary: #7c5cff;
+            /* фиолетовый акцент в стиле Ninja */
+            --primary-600: #6c4ae6;
+            --danger: #ff5c7c;
+            --success: #2ecc71;
+            --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+            --radius: 14px;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            background: linear-gradient(160deg, #0b0c0f, #12141a);
+            color: var(--text);
+            display: grid;
+            place-items: center;
+            padding: 32px 16px;
+        }
+
+        .card {
+            width: min(720px, 100%);
+            background: linear-gradient(180deg, var(--panel), var(--panel-2));
+            border: 1px solid rgba(255, 255, 255, .06);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .header {
+            padding: 28px 28px 12px;
+        }
+
+        .title {
+            margin: 0 0 6px 0;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: .2px;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        form {
+            padding: 0 28px 28px;
+        }
+
+        .field {
+            margin-top: 18px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        input[type="email"],
+        textarea {
+            width: 100%;
+            background: #0f1116;
+            border: 1px solid rgba(255, 255, 255, .08);
+            color: var(--text);
+            border-radius: 12px;
+            padding: 14px 14px;
+            outline: none;
+            transition: border-color .16s ease, box-shadow .16s ease;
+        }
+
+        input[type="email"]:focus,
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(124, 92, 255, .18);
+        }
+
+        textarea {
+            min-height: 160px;
+            resize: vertical;
+        }
+
+        .actions {
+            margin-top: 22px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        button[type="submit"] {
+            background: linear-gradient(180deg, var(--primary), var(--primary-600));
+            color: #fff;
+            border: none;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-weight: 700;
+            letter-spacing: .3px;
+            cursor: pointer;
+            transition: transform .06s ease, filter .16s ease;
+        }
+
+        button[type="submit"]:hover {
+            filter: brightness(1.07);
+        }
+
+        button[type="submit"]:active {
+            transform: translateY(1px);
+        }
+
+        .note {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status {
+            font-size: 13px;
+        }
+
+        .status.ok {
+            color: var(--success);
+        }
+
+        .status.err {
+            color: var(--danger);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .brand .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--primary);
+            box-shadow: 0 0 18px rgba(124, 92, 255, .6);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="brand">
+                <div class="dot"></div>
+                <div style="opacity:.9;font-weight:700">NinjaTraining</div>
+            </div>
+            <h1 class="title">Обратная связь</h1>
+            <p class="subtitle">Поделитесь мнением о приложении. Это поможет нам стать лучше.</p>
+        </div>
+        <form id="feedbackForm" method="post" action="/feedback" novalidate>
+            <div class="field">
+                <label for="email">Email (обязательно)</label>
+                <input id="email" name="email" type="email" placeholder="you@example.com" required />
+            </div>
+            <div class="field">
+                <label for="message">Сообщение</label>
+                <textarea id="message" name="message" placeholder="Опишите идею, пожелание или проблему..."></textarea>
+            </div>
+            <div class="actions">
+                <button type="submit">Отправить</button>
+                <span class="note">Ответ придёт на указанный email.</span>
+            </div>
+            <div id="status" class="status" role="status" aria-live="polite" style="margin-top:10px"></div>
+        </form>
+    </div>
+
+    <script>
+        (function () {
+            const form = document.getElementById('feedbackForm');
+            const statusEl = document.getElementById('status');
+            form.addEventListener('submit', async function (e) {
+                // Попробуем AJAX; если не получится, пусть сработает обычный submit
+                e.preventDefault();
+                statusEl.textContent = '';
+
+                const email = document.getElementById('email').value.trim();
+                const message = document.getElementById('message').value.trim();
+                if (!email) {
+                    statusEl.textContent = 'Укажите email';
+                    statusEl.className = 'status err';
+                    return;
+                }
+                try {
+                    const formData = new FormData();
+                    formData.append('email', email);
+                    formData.append('message', message);
+                    const resp = await fetch('/feedback', { method: 'POST', body: formData });
+                    if (resp.ok) {
+                        window.location.href = '/static/feedback-success.html';
+                    } else {
+                        const data = await resp.json().catch(() => ({}));
+                        statusEl.textContent = data.detail || 'Не удалось отправить. Попробуйте позже.';
+                        statusEl.className = 'status err';
+                    }
+                } catch (err) {
+                    statusEl.textContent = 'Ошибка сети. Попробуйте позже.';
+                    statusEl.className = 'status err';
+                }
+            });
+        })();
+    </script>
+
+</body>
+
+</html>

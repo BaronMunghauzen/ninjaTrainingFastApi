@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,6 +22,8 @@ from app.user_measurements.router import router as router_user_measurements
 from app.subscriptions.router import router as router_subscriptions
 from app.notifications.router import router as router_notifications
 from app.logger import logger
+from pydantic import EmailStr
+from app.email_service import email_service
 
 
 @asynccontextmanager
@@ -153,6 +155,26 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 @app.get("/")
 def home_page():
     return {"message": "Привет!"}
+
+
+@app.get("/feedback", response_class=FileResponse)
+def feedback_page():
+    return FileResponse("static/feedback.html")
+
+
+@app.post("/feedback")
+async def submit_feedback(email: EmailStr = Form(...), message: str = Form("")):
+    try:
+        await email_service.send_support_request(
+            user_email=str(email),
+            user_name="Anonymous",
+            request_type="App feedback",
+            message=message or "(пустое сообщение)"
+        )
+        return RedirectResponse(url="/static/feedback-success.html", status_code=303)
+    except Exception as e:
+        logger.error(f"Ошибка отправки feedback: {e}")
+        return JSONResponse(status_code=500, content={"detail": "Не удалось отправить сообщение. Попробуйте позже."})
 
 
 app.include_router(router_users)
