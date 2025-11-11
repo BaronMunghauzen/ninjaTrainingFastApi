@@ -9,6 +9,7 @@ from app.trainings.dao import TrainingDAO
 from app.users.dao import UsersDAO
 from app.services.schemas import SupportRequestCreate, SupportRequestResponse
 from app.email_service import email_service
+from app.config import SETTINGS_JSON
 import logging
 
 logger = logging.getLogger(__name__)
@@ -139,3 +140,9 @@ async def create_support_request(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при отправке обращения: {str(e)}"
         ) 
+
+
+@router.get("/settings/")
+async def get_service_settings():
+    """Возвращает настройки сервисов"""
+    return SETTINGS_JSON

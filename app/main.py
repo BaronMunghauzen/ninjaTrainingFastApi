@@ -104,6 +104,10 @@ async def log_request_data(request: Request, call_next):
         return {"type": "http.request", "body": body}
     request = Request(request.scope, receive)
     response = await call_next(request)
+    
+    if response.status_code == 403:
+        response.delete_cookie("users_access_token")
+    
     return response
 
 

@@ -55,6 +55,7 @@ class User(Base):
 
     is_user: Mapped[bool] = mapped_column(default=True, server_default=text('true'), nullable=False)
     is_admin: Mapped[bool] = mapped_column(default=False, server_default=text('false'), nullable=False)
+    actual: Mapped[bool] = mapped_column(default=True, server_default=text('true'), nullable=False)
 
     avatar_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("files.id"), nullable=True)
 
@@ -131,6 +132,7 @@ class User(Base):
             "password": self.password,
             "is_user": self.is_user,
             "is_admin": self.is_admin,
+            "actual": self.actual,
             "subscription_status": self.subscription_status.value,
             "subscription_until": str(self.subscription_until) if self.subscription_until else None,
             "theme": self.theme.value,

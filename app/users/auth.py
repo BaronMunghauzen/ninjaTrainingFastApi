@@ -51,6 +51,10 @@ async def authenticate_user(user_identity: str, password: str):
         )
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
-    if not user or verify_password(plain_password=password, hashed_password=user.password) is False:
+    if (
+        not user
+        or not user.actual
+        or verify_password(plain_password=password, hashed_password=user.password) is False
+    ):
         return None
     return user

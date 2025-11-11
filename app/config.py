@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,3 +46,10 @@ def get_db_url():
 
 def get_auth_data():
     return {"secret_key": settings.SECRET_KEY, "algorithm": settings.ALGORITHM}
+
+
+SETTINGS_JSON: Dict[str, Any] = {
+    "app": {
+        "isPaymentVisible": True
+    }
+}

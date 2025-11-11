@@ -50,6 +50,7 @@ async def register_user(user_data: SUserRegister) -> dict:
     user_dict['theme'] = 'dark'
     user_dict['is_user'] = True
     user_dict['is_admin'] = False
+    user_dict['actual'] = True
     # Добавляем новые поля для email verification
     user_dict['email_verified'] = False
     user_dict['email_verification_sent_at'] = datetime.utcnow()
@@ -132,6 +133,18 @@ async def auth_user(response: Response, user_data: SUserAuth):
 @router.get("/me/")
 async def get_me(user_data: User = Depends(get_current_user)):
     return await user_data.to_dict()
+
+
+@router.delete("/me/")
+async def deactivate_profile(current_user: User = Depends(get_current_user_user)):
+    if not current_user.actual:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Профиль уже деактивирован"
+        )
+    
+    await UsersDAO.update(current_user.uuid, actual=False)
+    return {"message": "Профиль успешно деактивирован"}
 
 
 @router.post("/logout/")
