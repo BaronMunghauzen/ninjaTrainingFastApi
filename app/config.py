@@ -50,6 +50,7 @@ def get_auth_data():
 
 SETTINGS_JSON: Dict[str, Any] = {
     "app": {
-        "isPaymentVisible": True
+        "isPaymentVisible": True,
+        "isPaymentVisibleWorldwide": True
     }
 }

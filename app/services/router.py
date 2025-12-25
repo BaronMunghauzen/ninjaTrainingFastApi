@@ -50,11 +50,28 @@ async def search_all(
     logger.info(f"Поиск для пользователя {user_uuid} (ID: {user_id}) по запросу: '{search_query}'")
     
     try:
-        # 1. Поиск в exercise_reference
-        exercise_references = await ExerciseReferenceDAO.search_by_caption(
+        # 1. Поиск в exercise_reference с сортировкой на уровне БД (по избранным и популярности)
+        exercise_references_result = await ExerciseReferenceDAO.search_by_caption_paginated(
             search_query=search_query,
-            user_id=user_id
+            user_id=user_id,
+            page=0,  # Получаем все результаты
+            size=0,  # Без пагинации
+            favorite_user_id=user_id  # Сортировка по избранным текущего пользователя
         )
+        exercise_references = exercise_references_result["items"]
+        
+        # Преобразуем exercise_references в словари и добавляем is_favorite и popularity
+        from app.user_favorite_exercises.dao import UserFavoriteExerciseDAO
+        exercise_ids = [e.id for e in exercise_references]
+        popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
+        favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_id)
+        
+        exercise_references_dicts = []
+        for e in exercise_references:
+            item = e.to_dict()
+            item['is_favorite'] = e.id in favorite_exercise_ids
+            item['popularity'] = popularity_dict.get(e.id, 0)
+            exercise_references_dicts.append(item)
         
         # 2. Поиск в programs
         programs = await ProgramDAO.search_by_caption(
@@ -68,13 +85,13 @@ async def search_all(
             user_id=user_id
         )
         
-        logger.info(f"Найдено: {len(exercise_references)} exercise_references, {len(programs)} programs, {len(trainings)} trainings")
+        logger.info(f"Найдено: {len(exercise_references_dicts)} exercise_references, {len(programs)} programs, {len(trainings)} trainings")
         
         return {
-            "exercise_references": exercise_references,
+            "exercise_references": exercise_references_dicts,
             "programs": programs,
             "trainings": trainings,
-            "total_results": len(exercise_references) + len(programs) + len(trainings)
+            "total_results": len(exercise_references_dicts) + len(programs) + len(trainings)
         }
         
     except Exception as e:

@@ -1,7 +1,10 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from sqlalchemy import Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, int_pk, uuid_field
+
+if TYPE_CHECKING:
+    from app.user_favorite_exercises.models import UserFavoriteExercise
 
 class ExerciseReference(Base):
     __tablename__ = 'exercise_reference'
@@ -25,6 +28,7 @@ class ExerciseReference(Base):
     video: Mapped[Optional["File"]] = relationship("File", foreign_keys=[video_id])
     gif: Mapped[Optional["File"]] = relationship("File", foreign_keys=[gif_id])
     user: Mapped[Optional["User"]] = relationship("User")
+    favorited_by_users: Mapped[list["UserFavoriteExercise"]] = relationship("UserFavoriteExercise", back_populates="exercise_reference")
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id}, caption={self.caption!r})"

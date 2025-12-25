@@ -21,6 +21,7 @@ from app.password_reset.router import router as router_password_reset
 from app.user_measurements.router import router as router_user_measurements
 from app.subscriptions.router import router as router_subscriptions
 from app.notifications.router import router as router_notifications
+from app.last_values.router import router as router_last_values
 from app.logger import logger
 from pydantic import EmailStr
 from app.email_service import email_service
@@ -198,6 +199,7 @@ app.include_router(router_password_reset)
 app.include_router(router_user_measurements)
 app.include_router(router_subscriptions)
 app.include_router(router_notifications)
+app.include_router(router_last_values)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

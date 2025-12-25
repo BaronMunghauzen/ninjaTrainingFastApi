@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from app.password_reset.models import PasswordResetCode
     from app.user_measurements.models import UserMeasurementType, UserMeasurement
     from app.subscriptions.models import Payment, Subscription
+    from app.last_values.models import LastValue
+    from app.user_favorite_exercises.models import UserFavoriteExercise
 
 
 class GenderEnum(str, Enum):
@@ -106,6 +108,12 @@ class User(Base):
     # Определяем отношения с платежами и подписками
     payments: Mapped[list["Payment"]] = relationship("Payment", back_populates="user")
     subscriptions: Mapped[list["Subscription"]] = relationship("Subscription", back_populates="user")
+    
+    # Определяем отношения с последними значениями
+    last_values: Mapped[list["LastValue"]] = relationship("LastValue", back_populates="user")
+    
+    # Определяем отношения с избранными упражнениями
+    favorite_exercises: Mapped[list["UserFavoriteExercise"]] = relationship("UserFavoriteExercise", back_populates="user")
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id})"
