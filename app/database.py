@@ -13,7 +13,19 @@ from app.config import get_db_url
 
 DATABASE_URL = get_db_url()
 
-engine = create_async_engine(DATABASE_URL)
+# Настройка пула соединений для оптимизации использования памяти
+# pool_size - базовое количество соединений в пуле
+# max_overflow - максимальное количество дополнительных соединений
+# pool_pre_ping - проверка соединений перед использованием (предотвращает использование "мертвых" соединений)
+# pool_recycle - пересоздание соединений каждые 3600 секунд (1 час) для предотвращения утечек
+engine = create_async_engine(
+    DATABASE_URL,
+    pool_size=5,              # Максимум 5 соединений в пуле
+    max_overflow=10,           # Дополнительно до 10 соединений (итого до 15)
+    pool_pre_ping=True,        # Проверка соединений перед использованием
+    pool_recycle=3600,         # Пересоздавать соединения каждый час
+    echo=False                 # Отключить SQL логирование в продакшене
+)
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 # настройка аннотаций

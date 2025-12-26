@@ -13,3 +13,4 @@ class SUserFavoriteExercise(BaseModel):
     updated_at: Optional[datetime] = Field(None, description="Дата обновления")
 
 
+
