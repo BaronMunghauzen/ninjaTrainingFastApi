@@ -71,6 +71,9 @@ class User(Base):
     
     # FCM токен для push-уведомлений
     fcm_token: Mapped[str | None] = mapped_column(nullable=True)
+    
+    # Рейтинг пользователя
+    score: Mapped[int] = mapped_column(default=0, server_default=text('0'), nullable=False)
 
     # Определяем отношения с упражнениями
     exercises: Mapped[list["Exercise"]] = relationship("Exercise", back_populates="user")
@@ -153,4 +156,6 @@ class User(Base):
             "trial_started_at": self.trial_started_at.isoformat() if self.trial_started_at else None,
             # Добавляем FCM токен
             "fcm_token": self.fcm_token,
+            # Добавляем рейтинг
+            "score": self.score,
         }

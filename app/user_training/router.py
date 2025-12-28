@@ -2,7 +2,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 import traceback
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from app.user_training.dao import UserTrainingDAO
 from app.user_training.rb import RBUserTraining
 from app.user_training.schemas import SUserTraining, SUserTrainingAdd, SUserTrainingUpdate
@@ -351,18 +351,32 @@ async def delete_user_training_by_id(user_training_uuid: UUID, user_data = Depen
 
 
 @router.post("/{user_training_uuid}/pass")
-async def pass_user_training(user_training_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+async def pass_user_training(
+    user_training_uuid: UUID,
+    background_tasks: BackgroundTasks,
+    user_data = Depends(get_current_user_user)
+) -> dict:
     """
     Отметить пользовательскую тренировку как выполненную (PASSED)
     """
+    from app.logger import logger
+    
+    logger.info(f"Попытка завершить тренировку {user_training_uuid} для пользователя {user_data.id}")
+    
     # Получаем user_training
     user_training = await UserTrainingDAO.find_full_data(user_training_uuid)
     if not user_training:
+        logger.warning(f"Тренировка {user_training_uuid} не найдена")
         raise HTTPException(status_code=404, detail="Пользовательская тренировка не найдена")
     
+    logger.info(f"Тренировка {user_training_uuid} найдена, текущий статус: {user_training.status}, тип статуса: {type(user_training.status)}")
+    
     # Проверяем, что тренировка в активном статусе
-    if user_training.status.value != 'ACTIVE':
-        raise HTTPException(status_code=400, detail=f"Тренировка уже имеет статус {user_training.status.value}")
+    # Обрабатываем как Enum, так и строку
+    current_status = user_training.status.value if hasattr(user_training.status, 'value') else str(user_training.status)
+    if current_status != 'ACTIVE':
+        logger.warning(f"Тренировка {user_training_uuid} уже имеет статус {current_status}, нельзя завершить")
+        raise HTTPException(status_code=400, detail=f"Тренировка уже имеет статус {current_status}")
     
     # Обновляем статус на PASSED и заполняем completed_at
     current_time = datetime.now()
@@ -371,12 +385,53 @@ async def pass_user_training(user_training_uuid: UUID, user_data = Depends(get_c
         'completed_at': current_time
     }
     
+    logger.info(f"Обновляю статус тренировки {user_training_uuid} на PASSED")
     check = await UserTrainingDAO.update(user_training_uuid, **update_data)
     if not check:
+        logger.error(f"Ошибка при обновлении статуса тренировки {user_training_uuid}")
         raise HTTPException(status_code=500, detail="Ошибка при обновлении статуса тренировки")
+    
+    logger.info(f"Статус тренировки {user_training_uuid} успешно обновлен на PASSED")
+    
+    # Добавляем +1 к score пользователя
+    logger.info(f"Обновляю score пользователя {user_training.user_id}")
+    user = await UsersDAO.find_one_or_none_by_id(user_training.user_id)
+    if user:
+        current_score = user.score if user.score else 0
+        new_score = current_score + 1
+        logger.info(f"Текущий score: {current_score}, новый score: {new_score}")
+        await UsersDAO.update(user.uuid, score=new_score)
+        logger.info(f"Score пользователя {user.uuid} обновлен на {new_score}")
+    else:
+        logger.warning(f"Пользователь {user_training.user_id} не найден для обновления score")
     
     # Получаем user_training заново с новым статусом
     user_training = await UserTrainingDAO.find_full_data(user_training_uuid)
+    
+    # Запускаем фоновую задачу для проверки достижений (только если не день отдыха)
+    logger.info(f"is_rest_day: {user_training.is_rest_day}")
+    if not user_training.is_rest_day:
+        logger.info(f"Запускаю фоновую задачу проверки достижений для тренировки {user_training_uuid}")
+        async def check_achievements_task():
+            from app.achievements.check_service import AchievementCheckService
+            from app.database import async_session_maker
+            async with async_session_maker() as session:
+                try:
+                    logger.info(f"[Background] Начинаю проверку достижений для тренировки {user_training_uuid}")
+                    # Получаем обновленную тренировку
+                    updated_training = await UserTrainingDAO.find_full_data(user_training_uuid)
+                    if updated_training:
+                        check_service = AchievementCheckService(session)
+                        achievements = await check_service.check_achievements_for_training(updated_training)
+                        logger.info(f"[Background] Проверка достижений завершена, получено достижений: {len(achievements)}")
+                    else:
+                        logger.warning(f"[Background] Тренировка {user_training_uuid} не найдена для проверки достижений")
+                except Exception as e:
+                    logger.error(f"[Background] Ошибка при проверке достижений для {user_training_uuid}: {e}", exc_info=True)
+        
+        background_tasks.add_task(check_achievements_task)
+    else:
+        logger.info(f"Тренировка {user_training_uuid} - день отдыха, пропускаю проверку достижений")
     
     # Активируем следующую тренировку
     next_activated, next_training = await activate_next_training(user_training)

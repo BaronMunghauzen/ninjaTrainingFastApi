@@ -44,7 +44,8 @@ class FirebaseService:
         fcm_token: str,
         title: str,
         body: str,
-        data: dict = None
+        data: dict = None,
+        channel_id: str = 'default_channel'
     ) -> bool:
         """
         Отправка push-уведомления через FCM
@@ -62,18 +63,27 @@ class FirebaseService:
             cls.initialize()
         
         try:
+            data_str = f", data={data}" if data else ""
+            logger.info(f"📤 Отправляю FCM уведомление: title='{title}', body='{body}', channel_id='{channel_id}'{data_str}")
+            
+            # Конвертируем все значения в data в строки (требование FCM)
+            data_for_fcm = {}
+            if data:
+                for key, value in data.items():
+                    data_for_fcm[str(key)] = str(value)
+            
             message = messaging.Message(
                 notification=messaging.Notification(
                     title=title,
                     body=body,
                 ),
-                data=data or {},
+                data=data_for_fcm,
                 token=fcm_token,
                 android=messaging.AndroidConfig(
                     priority='high',
                     notification=messaging.AndroidNotification(
                         sound='default',
-                        channel_id='timer_channel',
+                        channel_id=channel_id,
                         priority='max',
                     ),
                 ),
@@ -88,15 +98,18 @@ class FirebaseService:
             )
             
             response = messaging.send(message)
-            logger.info(f"✅ FCM уведомление отправлено: {response}")
+            data_str = f", data={data_for_fcm}" if data_for_fcm else ""
+            logger.info(f"✅ FCM уведомление отправлено: title='{title}', body='{body}', channel_id='{channel_id}'{data_str}, response={response}")
             return True
             
-        except messaging.UnregisteredError:
-            logger.warning(f"⚠️ FCM токен невалиден или устарел: {fcm_token[:20]}...")
+        except messaging.UnregisteredError as e:
+            logger.warning(f"⚠️ FCM токен невалиден или устарел: {fcm_token[:20]}... (UnregisteredError: {e})")
+            logger.warning(f"   Это может произойти, если: приложение было переустановлено, токен устарел, или устройство было удалено из Firebase")
             # Возвращаем специальный код для невалидного токена
             return "INVALID_TOKEN"
-        except messaging.SenderIdMismatchError:
-            logger.error(f"❌ Несоответствие Sender ID: {fcm_token[:20]}...")
+        except messaging.SenderIdMismatchError as e:
+            logger.error(f"❌ Несоответствие Sender ID: {fcm_token[:20]}... (SenderIdMismatchError: {e})")
+            logger.error(f"   Токен принадлежит другому проекту Firebase. Проверьте конфигурацию Firebase credentials.")
             return "INVALID_TOKEN"
         except messaging.InvalidArgumentError as e:
             logger.error(f"❌ Неверные аргументы FCM: {e}")

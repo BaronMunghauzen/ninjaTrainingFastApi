@@ -37,3 +37,7 @@ class UserFavoriteExercise(Base):
 
 
 
+
+
+
+

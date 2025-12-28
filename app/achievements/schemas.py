@@ -13,10 +13,19 @@ class AchievementTypeBase(BaseModel):
     icon: Optional[str] = Field(None, description="Иконка достижения")
     points: Optional[int] = Field(None, description="Количество очков за достижение")
     is_active: Optional[bool] = Field(True, description="Активно ли достижение")
+    image_uuid: Optional[UUID] = Field(None, description="UUID изображения из таблицы files")
 
 
-class AchievementTypeCreate(AchievementTypeBase):
-    pass
+class AchievementTypeCreate(BaseModel):
+    name: str = Field(..., description="Название типа достижения")
+    description: str = Field(..., description="Описание типа достижения")
+    category: str = Field(..., description="Категория достижения")
+    subcategory: Optional[str] = Field(None, description="Подкатегория достижения")
+    requirements: Optional[str] = Field(None, description="Требования для получения")
+    icon: Optional[str] = Field(None, description="Иконка достижения")
+    points: Optional[int] = Field(None, description="Количество очков за достижение")
+    is_active: Optional[bool] = Field(True, description="Активно ли достижение")
+    image_id: Optional[int] = Field(None, description="ID изображения из таблицы files (для создания)")
 
 
 class AchievementTypeUpdate(AchievementTypeBase):
@@ -27,7 +36,6 @@ class AchievementTypeUpdate(AchievementTypeBase):
 
 
 class AchievementTypeDisplay(AchievementTypeBase):
-    id: int
     uuid: UUID
     created_at: datetime
     updated_at: datetime
@@ -57,14 +65,13 @@ class AchievementUpdate(BaseModel):
 
 
 class AchievementDisplay(BaseModel):
-    id: int
     uuid: UUID
     achievement_type: AchievementTypeDisplay
-    user_id: int
+    user_uuid: UUID
     status: str
-    user_training_id: Optional[int]
-    user_program_id: Optional[int]
-    program_id: Optional[int]
+    user_training_uuid: Optional[UUID] = None
+    user_program_uuid: Optional[UUID] = None
+    program_uuid: Optional[UUID] = None
     training_date: Optional[date]
     completed_at: Optional[datetime]
     created_at: datetime
@@ -83,9 +90,35 @@ class AchievementWithType(BaseModel):
     completed_at: Optional[datetime]
 
 
+class AchievementTypeWithStatus(BaseModel):
+    """Тип достижения с информацией о статусе для пользователя"""
+    uuid: UUID
+    name: str
+    description: str
+    category: str
+    subcategory: Optional[str]
+    requirements: Optional[str]
+    icon: Optional[str]
+    points: Optional[int]
+    is_active: Optional[bool]
+    image_uuid: Optional[UUID] = None
+    status: str = Field(description="Статус: 'earned' если достижение получено, 'not_earned' если не получено")
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class UserAchievementsResponse(BaseModel):
-    user_id: int
+    user_uuid: UUID
     achievements: List[AchievementWithType]
+    total_count: int
+
+
+class UserAchievementTypesResponse(BaseModel):
+    """Ответ со всеми типами достижений и их статусом для пользователя"""
+    achievement_types: List[AchievementTypeWithStatus]
     total_count: int
 
 

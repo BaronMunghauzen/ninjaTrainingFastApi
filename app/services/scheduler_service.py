@@ -45,16 +45,17 @@ class SchedulerService:
             cls.cancel_job(job_id)
             
             # Планируем новую задачу
+            # Используем lambda для правильной передачи именованного параметра channel_id
             cls._scheduler.add_job(
-                func=FirebaseService.send_notification,
+                func=lambda: FirebaseService.send_notification(
+                    fcm_token=fcm_token,
+                    title='Время отдыха закончилось! ⏰',
+                    body=f'Можете приступать к следующему подходу: {exercise_name}',
+                    data={'type': 'timer_end', 'exercise': exercise_name},
+                    channel_id='timer_channel'  # Канал для уведомлений о таймере
+                ),
                 trigger=DateTrigger(run_date=scheduled_time),
                 id=job_id,
-                args=[
-                    fcm_token,
-                    'Время отдыха закончилось! ⏰',
-                    f'Можете приступать к следующему подходу: {exercise_name}',
-                    {'type': 'timer_end', 'exercise': exercise_name}
-                ],
                 replace_existing=True,
                 misfire_grace_time=30,  # Если задержка до 30 сек - все равно выполнить
             )

@@ -1,5 +1,5 @@
 from typing import Optional, TYPE_CHECKING
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, str_uniq, int_pk, str_null_true, uuid_field
 from datetime import date, datetime
@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.programs.models import Program
     from app.users.models import User
     from app.user_training.models import UserTraining
+    from app.files.models import File
 
 
 class AchievementType(Base):
@@ -24,10 +25,12 @@ class AchievementType(Base):
     icon: Mapped[Optional[str]] = mapped_column(nullable=True)
     points: Mapped[Optional[int]] = mapped_column(nullable=True)
     is_active: Mapped[Optional[bool]] = mapped_column(nullable=True)
+    image_id: Mapped[Optional[int]] = mapped_column(ForeignKey("files.id"), nullable=True)
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
     achievements: Mapped[list["Achievement"]] = relationship("Achievement", back_populates="achievement_type")
+    image: Mapped[Optional["File"]] = relationship("File")
 
     def __repr__(self):
         return f"<AchievementType {self.id} (name={self.name}, category={self.category})>"
@@ -43,6 +46,7 @@ class AchievementType(Base):
             "icon": self.icon,
             "points": self.points,
             "is_active": self.is_active,
+            "image_id": self.image_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }

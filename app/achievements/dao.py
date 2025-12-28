@@ -26,8 +26,10 @@ class AchievementTypeDAO(BaseDAO):
 
     async def find_by_category(self, category: str) -> List[AchievementType]:
         """Найти все типы достижений по категории"""
+        from sqlalchemy.orm import selectinload
         result = await self.session.execute(
             select(AchievementType)
+            .options(selectinload(AchievementType.image))
             .where(AchievementType.category == category)
             .order_by(AchievementType.points)
         )
@@ -35,8 +37,10 @@ class AchievementTypeDAO(BaseDAO):
 
     async def find_active(self) -> List[AchievementType]:
         """Найти все активные типы достижений"""
+        from sqlalchemy.orm import selectinload
         result = await self.session.execute(
             select(AchievementType)
+            .options(selectinload(AchievementType.image))
             .where(AchievementType.is_active.is_(True))
             .order_by(AchievementType.points.nulls_last())
         )
@@ -44,10 +48,23 @@ class AchievementTypeDAO(BaseDAO):
 
     async def find_all(self) -> List[AchievementType]:
         """Найти все типы достижений"""
+        from sqlalchemy.orm import selectinload
         result = await self.session.execute(
-            select(AchievementType).order_by(AchievementType.points.nulls_last())
+            select(AchievementType)
+            .options(selectinload(AchievementType.image))
+            .order_by(AchievementType.points.nulls_last())
         )
         return result.scalars().all()
+    
+    async def find_by_uuid(self, uuid: str) -> Optional[AchievementType]:
+        """Найти тип достижения по UUID"""
+        from sqlalchemy.orm import selectinload
+        result = await self.session.execute(
+            select(AchievementType)
+            .options(selectinload(AchievementType.image))
+            .where(AchievementType.uuid == uuid)
+        )
+        return result.scalar_one_or_none()
 
     async def create_achievement_type(
         self,
@@ -58,7 +75,8 @@ class AchievementTypeDAO(BaseDAO):
         requirements: Optional[str] = None,
         icon: Optional[str] = None,
         points: Optional[int] = None,
-        is_active: bool = True
+        is_active: bool = True,
+        image_id: Optional[int] = None
     ) -> AchievementType:
         """Создать новый тип достижения"""
         achievement_type = AchievementType(
@@ -71,6 +89,7 @@ class AchievementTypeDAO(BaseDAO):
             icon=icon,
             points=points,
             is_active=is_active,
+            image_id=image_id,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
         )
@@ -131,12 +150,22 @@ class AchievementDAO(BaseDAO):
         user_id: int,
         user_training_id: Optional[int] = None,
         user_program_id: Optional[int] = None,
-        program_id: Optional[int] = None
+        program_id: Optional[int] = None,
+        name: Optional[str] = None
     ) -> Achievement:
         """Создать новое достижение для пользователя"""
+        # Если name не передан, получаем его из типа достижения
+        if name is None:
+            from app.achievements.models import AchievementType
+            result = await self.session.execute(
+                select(AchievementType).where(AchievementType.id == achievement_type_id)
+            )
+            achievement_type = result.scalar_one_or_none()
+            name = achievement_type.name if achievement_type else ""
+        
         achievement = Achievement(
             uuid=str(uuid.uuid4()),
-            name="",  # Будет заполнено из типа достижения
+            name=name,  # Заполняем поле name
             achievement_type_id=achievement_type_id,
             user_id=user_id,
             status="active",
@@ -170,3 +199,10 @@ class AchievementDAO(BaseDAO):
             )
         )
         return result.scalar_one_or_none() is not None
+    
+    async def find_by_uuid(self, uuid: str) -> Optional[Achievement]:
+        """Найти достижение по UUID"""
+        result = await self.session.execute(
+            select(Achievement).where(Achievement.uuid == uuid)
+        )
+        return result.scalar_one_or_none()

@@ -14,3 +14,7 @@ class SUserFavoriteExercise(BaseModel):
 
 
 
+
+
+
+
