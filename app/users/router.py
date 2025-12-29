@@ -12,6 +12,7 @@ from app.users.models import User
 from app.users.schemas import SUserRegister, SUserAuth, SUserUpdate
 from app.email_verification.dao import EmailVerificationDAO
 from app.email_service import email_service
+from app.telegram_service import telegram_service
 from app.files.service import FileService
 from app.files.dao import FilesDAO
 from app.files.schemas import FileUploadResponse, FileResponse as FileResponseSchema
@@ -94,6 +95,18 @@ async def register_user(user_data: SUserRegister) -> dict:
         # Логируем ошибку, но не прерываем регистрацию
         logger.error(f"Ошибка отправки email: {e}")
         logger.error(f"Тип ошибки: {type(e).__name__}")
+    
+    # Отправляем уведомление в Telegram о новой регистрации
+    try:
+        await telegram_service.notify_new_registration(
+            user_email=new_user.email,
+            user_login=new_user.login,
+            user_id=new_user.id,
+            user_uuid=str(new_user.uuid)
+        )
+    except Exception as e:
+        # Логируем ошибку, но не прерываем регистрацию
+        logger.error(f"Ошибка отправки Telegram уведомления о регистрации: {e}")
     
     # Создаем токены для нового пользователя
     access_token = create_access_token({"sub": str(new_user.id)})

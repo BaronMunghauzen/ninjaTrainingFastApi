@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     TOCHKA_CUSTOMER_CODE: str
     TOCHKA_MERCHANT_ID: Optional[str] = None
     TOCHKA_API_URL: str
+    
+    # Настройки Telegram для уведомлений
+    # TELEGRAM_BOT_TOKEN: токен бота от @BotFather
+    # TELEGRAM_CHAT_ID: ID чата или канала куда отправлять уведомления
+    # Получить chat_id можно отправив боту сообщение и посмотрев в логах или через @userinfobot
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"),
@@ -50,7 +57,7 @@ def get_auth_data():
 
 SETTINGS_JSON: Dict[str, Any] = {
     "app": {
-        "isPaymentVisible": False,
-        "isPaymentVisibleWorldwide": False
+        "isPaymentVisible": True,
+        "isPaymentVisibleWorldwide": True
     }
 }

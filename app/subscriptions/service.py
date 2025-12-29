@@ -9,6 +9,7 @@ import logging
 from app.subscriptions.dao import SubscriptionDAO, PaymentDAO, SubscriptionPlanDAO
 from app.users.dao import UsersDAO
 from app.payments.tochka_service import TochkaPaymentService
+from app.telegram_service import telegram_service
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +324,20 @@ class SubscriptionService:
         )
         
         logger.info(f"Подписка активирована для пользователя {user.id} до {expires_at}")
+        
+        # Отправляем уведомление в Telegram об успешной оплате
+        try:
+            await telegram_service.notify_payment_success(
+                user_email=user.email,
+                user_login=user.login,
+                payment_uuid=payment_uuid,
+                amount=float(payment.amount),
+                plan_name=plan.name,
+                subscription_until=expires_at.date().strftime('%d.%m.%Y')
+            )
+        except Exception as e:
+            # Логируем ошибку, но не прерываем обработку платежа
+            logger.error(f"Ошибка отправки Telegram уведомления об оплате: {e}")
     
     @staticmethod
     async def check_and_update_expired_subscriptions():
