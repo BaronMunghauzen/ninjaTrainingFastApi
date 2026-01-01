@@ -34,6 +34,7 @@ logger.add(
 )
 
 # Добавляем отдельный файл для ошибок (ERROR и CRITICAL)
+# Ограничиваем глубину traceback для предотвращения накопления в linecache
 logger.add(
     "logs/errors_{time:YYYY-MM-DD}.log",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
@@ -44,7 +45,7 @@ logger.add(
     encoding="utf-8",
     enqueue=True,
     backtrace=True,  # Показывать полный traceback
-    diagnose=True,  # Добавлять диагностическую информацию
+    diagnose=False,  # Отключаем детальную диагностику для экономии памяти (предотвращает накопление в linecache)
 )
 
 # Экспортируем logger для использования в других модулях

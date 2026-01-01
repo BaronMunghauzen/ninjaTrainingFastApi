@@ -36,6 +36,9 @@ class ExerciseDAO(BaseDAO):
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Объект {cls.model.__name__} с ID {object_uuid} не найден"
                 )
+            # Отключаем объект от сессии для безопасного использования после закрытия сессии
+            # Это необходимо при expire_on_commit=True. Предзагруженные relationships останутся доступными
+            session.expunge(object_info)
             return object_info
 
     @classmethod
@@ -58,4 +61,8 @@ class ExerciseDAO(BaseDAO):
             ).filter_by(**filters)
             result = await session.execute(query)
             objects = result.scalars().all()
+            # Отключаем объекты от сессии для безопасного использования после закрытия сессии
+            # Это необходимо при expire_on_commit=True. Предзагруженные relationships останутся доступными
+            for obj in objects:
+                session.expunge(obj)
             return objects

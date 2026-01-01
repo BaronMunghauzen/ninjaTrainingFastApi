@@ -26,7 +26,9 @@ engine = create_async_engine(
     pool_recycle=3600,         # Пересоздавать соединения каждый час
     echo=False                 # Отключить SQL логирование в продакшене
 )
-async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
+# expire_on_commit=True позволяет освобождать объекты из identity map после commit,
+# что предотвращает накопление объектов в памяти и утечки памяти
+async_session_maker = async_sessionmaker(engine, expire_on_commit=True)
 
 # настройка аннотаций
 int_pk = Annotated[int, mapped_column(primary_key=True)]

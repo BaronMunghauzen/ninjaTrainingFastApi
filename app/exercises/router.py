@@ -28,7 +28,11 @@ async def get_all_exercises(request_body: RBExercise = Depends(), user_data = De
         data.pop('user_uuid', None)
         # Добавляем вложенные объекты
         data['user'] = id_to_user.get(e.user_id) if e.user_id else None
-        data["exercise_reference_uuid"] = str(e.exercise_reference.uuid) if hasattr(e, 'exercise_reference') and e.exercise_reference else None
+        # Безопасный доступ к relationship (может быть недоступен если не был загружен через joinedload)
+        try:
+            data["exercise_reference_uuid"] = str(e.exercise_reference.uuid) if hasattr(e, 'exercise_reference') and e.exercise_reference else None
+        except Exception:
+            data["exercise_reference_uuid"] = None
         result.append(data)
     return result
 

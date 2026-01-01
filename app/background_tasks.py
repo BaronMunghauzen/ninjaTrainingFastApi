@@ -4,11 +4,25 @@
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from app.subscriptions.service import SubscriptionService
 from app.logger import logger
 
 # Глобальный планировщик
 scheduler = None
+
+
+def clear_linecache():
+    """
+    Очистка linecache для предотвращения утечки памяти
+    linecache используется для хранения traceback'ов и может накапливаться
+    """
+    try:
+        import linecache
+        linecache.clearcache()
+        logger.debug("✓ linecache очищен для предотвращения утечки памяти")
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось очистить linecache: {e}")
 
 
 def start_scheduler():
@@ -34,8 +48,19 @@ def start_scheduler():
         replace_existing=True
     )
     
+    # Задача 2: Очистка linecache каждые 6 часов для предотвращения утечки памяти
+    # linecache используется для хранения traceback'ов и может накапливаться со временем
+    scheduler.add_job(
+        clear_linecache,
+        IntervalTrigger(hours=6),
+        id='clear_linecache',
+        name='Очистка linecache',
+        replace_existing=True
+    )
+    
     logger.info("Запланированные задачи:")
     logger.info("- Проверка истекших подписок: каждый день в 01:00")
+    logger.info("- Очистка linecache: каждые 6 часов (предотвращение утечки памяти)")
     
     # Запускаем планировщик
     scheduler.start()
