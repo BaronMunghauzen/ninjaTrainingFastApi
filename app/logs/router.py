@@ -19,9 +19,12 @@ def _get_safe_headers(filename: str, media_type: str) -> dict:
     Создает безопасные заголовки для скачивания файла
     """
     # Для .log файлов используем .txt расширение при скачивании, чтобы избежать блокировки антивирусом
+    # Для .zip архивов используем .dat расширение, чтобы избежать блокировки антивирусом
     download_filename = filename
     if filename.endswith('.log'):
         download_filename = filename.replace('.log', '.txt')
+    elif filename.endswith('.zip'):
+        download_filename = filename.replace('.zip', '.dat')
     
     # Экранируем имя файла для Content-Disposition (RFC 5987)
     from urllib.parse import quote
@@ -98,15 +101,11 @@ async def download_log(
         else:
             media_type = 'application/octet-stream'
         
-        # Для .log файлов используем .txt расширение при скачивании, чтобы избежать блокировки антивирусом
-        download_filename = filename
-        if filename.endswith('.log'):
-            download_filename = filename.replace('.log', '.txt')
-        
         # Возвращаем файл с правильной кодировкой и безопасными заголовками
+        # Расширение файла будет изменено в _get_safe_headers
         return FileResponse(
             path=str(file_path),
-            filename=download_filename,
+            filename=filename,  # Базовое имя, реальное имя будет в заголовках
             media_type=media_type,
             headers=_get_safe_headers(filename, media_type)
         )
