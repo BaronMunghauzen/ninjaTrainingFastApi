@@ -27,7 +27,7 @@ logger.add(
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
     level="INFO",
     rotation="00:00",  # Новый файл каждый день в полночь
-    retention="30 days",  # Хранить логи 30 дней
+    retention="10 days",  # Хранить логи 10 дней
     # compression="zip",  # ОТКЛЮЧЕНО - архивация отключена из-за проблем с антивирусом
     encoding="utf-8",
     enqueue=True,  # Асинхронная запись (безопасно для многопоточности)
