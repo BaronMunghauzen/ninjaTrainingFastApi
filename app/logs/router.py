@@ -14,6 +14,28 @@ from typing import Optional
 router = APIRouter(prefix='/logs', tags=['Logs'])
 
 
+def _get_safe_headers(filename: str, media_type: str) -> dict:
+    """
+    Создает безопасные заголовки для скачивания файла
+    """
+    # Для .log файлов используем .txt расширение при скачивании, чтобы избежать блокировки антивирусом
+    download_filename = filename
+    if filename.endswith('.log'):
+        download_filename = filename.replace('.log', '.txt')
+    
+    # Экранируем имя файла для Content-Disposition (RFC 5987)
+    from urllib.parse import quote
+    encoded_filename = quote(download_filename, safe='')
+    
+    return {
+        "Content-Disposition": f'attachment; filename="{download_filename}"; filename*=UTF-8\'\'{encoded_filename}',
+        "Content-Type": media_type,
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'",
+        "X-Download-Options": "noopen"
+    }
+
+
 @router.get('/list', summary='Получить список доступных логов')
 async def get_logs_list(admin: User = Depends(get_current_admin_user)):
     """
@@ -76,15 +98,17 @@ async def download_log(
         else:
             media_type = 'application/octet-stream'
         
-        # Возвращаем файл с правильной кодировкой
+        # Для .log файлов используем .txt расширение при скачивании, чтобы избежать блокировки антивирусом
+        download_filename = filename
+        if filename.endswith('.log'):
+            download_filename = filename.replace('.log', '.txt')
+        
+        # Возвращаем файл с правильной кодировкой и безопасными заголовками
         return FileResponse(
             path=str(file_path),
-            filename=filename,
+            filename=download_filename,
             media_type=media_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Type": media_type
-            }
+            headers=_get_safe_headers(filename, media_type)
         )
     except HTTPException:
         raise
@@ -140,10 +164,7 @@ async def download_log_stream(
         return StreamingResponse(
             generate(),
             media_type=media_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Type": media_type
-            }
+            headers=_get_safe_headers(filename, media_type)
         )
     except HTTPException:
         raise
