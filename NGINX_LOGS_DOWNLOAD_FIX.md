@@ -4,6 +4,8 @@
 
 Если при скачивании файлов логов через API заголовок `Content-Disposition` не изменяется (файл все еще скачивается с расширением `.zip` вместо `.dat`), возможно, nginx переопределяет заголовки.
 
+**ВАЖНО:** Если в заголовках ответа вы видите `etag` и `last-modified`, это означает, что nginx кэширует ответы или переопределяет заголовки. Нужно отключить кэширование для эндпоинтов `/logs/download`.
+
 ## Решение
 
 ### Вариант 1: Проверьте конфигурацию nginx
@@ -46,7 +48,7 @@ location /logs/ {
 }
 ```
 
-### Вариант 3: Отключить обработку заголовков для определенных путей
+### Вариант 3: Отключить кэширование и обработку заголовков для определенных путей
 
 ```nginx
 location /logs/download {
@@ -56,9 +58,20 @@ location /logs/download {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     
+    # Отключить кэширование
+    proxy_cache off;
+    proxy_buffering off;
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    add_header Pragma "no-cache";
+    add_header Expires "0";
+    
     # Не обрабатывать заголовки - передавать как есть
     proxy_pass_request_headers on;
     proxy_ignore_headers "Set-Cookie";
+    
+    # Явно разрешить передачу заголовка Content-Disposition
+    proxy_pass_header Content-Disposition;
+    proxy_pass_header Content-Type;
 }
 ```
 

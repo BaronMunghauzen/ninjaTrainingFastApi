@@ -3,7 +3,7 @@
 Позволяет администраторам скачивать файлы логов
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from pathlib import Path
 import os
 from app.users.dependencies import get_current_admin_user
@@ -104,15 +104,30 @@ async def download_log(
         # Получаем безопасные заголовки с измененным именем файла
         safe_headers = _get_safe_headers(filename, media_type)
         
-        # Возвращаем файл с правильной кодировкой и безопасными заголовками
-        # Важно: НЕ передаем filename в FileResponse, чтобы наши заголовки не переопределялись
-        # FileResponse автоматически создаст Content-Disposition на основе filename, если его передать
-        response = FileResponse(
-            path=str(file_path),
-            media_type=media_type
+        # Логируем заголовки для отладки
+        logger.info(f"Downloading file: {filename}, safe headers: {safe_headers.get('Content-Disposition', 'N/A')}")
+        
+        # Используем StreamingResponse для больших файлов
+        # Это гарантирует, что наши заголовки не будут переопределены
+        def generate():
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(8192)  # Читаем по 8KB
+                    if not chunk:
+                        break
+                    yield chunk
+        
+        response = StreamingResponse(
+            generate(),
+            media_type=media_type,
+            headers=safe_headers
         )
-        # Устанавливаем наши кастомные заголовки после создания response
-        response.headers.update(safe_headers)
+        
+        # Дополнительно устанавливаем заголовки после создания response
+        # Это гарантирует, что заголовки не будут переопределены
+        for key, value in safe_headers.items():
+            response.headers[key] = value
+        
         return response
     except HTTPException:
         raise
