@@ -101,14 +101,19 @@ async def download_log(
         else:
             media_type = 'application/octet-stream'
         
+        # Получаем безопасные заголовки с измененным именем файла
+        safe_headers = _get_safe_headers(filename, media_type)
+        
         # Возвращаем файл с правильной кодировкой и безопасными заголовками
-        # Расширение файла будет изменено в _get_safe_headers
-        return FileResponse(
+        # Важно: НЕ передаем filename в FileResponse, чтобы наши заголовки не переопределялись
+        # FileResponse автоматически создаст Content-Disposition на основе filename, если его передать
+        response = FileResponse(
             path=str(file_path),
-            filename=filename,  # Базовое имя, реальное имя будет в заголовках
-            media_type=media_type,
-            headers=_get_safe_headers(filename, media_type)
+            media_type=media_type
         )
+        # Устанавливаем наши кастомные заголовки после создания response
+        response.headers.update(safe_headers)
+        return response
     except HTTPException:
         raise
     except Exception as e:
