@@ -28,7 +28,7 @@ logger.add(
     level="INFO",
     rotation="00:00",  # Новый файл каждый день в полночь
     retention="30 days",  # Хранить логи 30 дней
-    compression="zip",  # Архивировать старые логи
+    # compression="zip",  # ОТКЛЮЧЕНО - архивация отключена из-за проблем с антивирусом
     encoding="utf-8",
     enqueue=True,  # Асинхронная запись (безопасно для многопоточности)
 )
@@ -41,7 +41,7 @@ logger.add(
     level="ERROR",
     rotation="00:00",  # Новый файл каждый день в полночь
     retention="90 days",  # Хранить логи ошибок 90 дней
-    compression="zip",
+    # compression="zip",  # ОТКЛЮЧЕНО - архивация отключена из-за проблем с антивирусом
     encoding="utf-8",
     enqueue=True,
     backtrace=True,  # Показывать полный traceback
