@@ -22,6 +22,7 @@ from app.user_measurements.router import router as router_user_measurements
 from app.subscriptions.router import router as router_subscriptions
 from app.notifications.router import router as router_notifications
 from app.last_values.router import router as router_last_values
+from app.logs.router import router as router_logs
 from app.logger import logger
 from pydantic import EmailStr
 from app.email_service import email_service
@@ -110,6 +111,11 @@ async def log_request_data(request: Request, call_next):
         '/upload-image', '/upload-video', '/upload-avatar'
     ])
     
+    # Проверяем, является ли это запросом на скачивание файла
+    is_file_download = any(path in str(request.url) for path in [
+        '/files/file/', '/logs/download'
+    ])
+    
     if is_file_upload:
         # Для файловых запросов логируем только метаданные (не читаем body в память)
         # Не трогаем запрос вообще - FastAPI сам обработает body для файлов
@@ -117,6 +123,14 @@ async def log_request_data(request: Request, call_next):
             f"Request: {request.method} {request.url}\n"
             f"Headers: {dict(request.headers)}\n"
             f"Body: [FILE UPLOAD - content not logged to save memory]"
+        )
+        response = await call_next(request)
+    elif is_file_download:
+        # Для запросов на скачивание файлов логируем только метаданные
+        logger.info(
+            f"Request: {request.method} {request.url}\n"
+            f"Headers: {dict(request.headers)}\n"
+            f"Body: [FILE DOWNLOAD - no body to log]"
         )
         response = await call_next(request)
     else:
@@ -521,6 +535,7 @@ app.include_router(router_user_measurements)
 app.include_router(router_subscriptions)
 app.include_router(router_notifications)
 app.include_router(router_last_values)
+app.include_router(router_logs)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

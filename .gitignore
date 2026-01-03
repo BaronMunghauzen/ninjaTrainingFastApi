@@ -37,6 +37,8 @@ Thumbs.db
 # Log files
 *.log
 logs/
+# But allow app/logs module (not log files, but application module)
+!app/logs/
 
 # Docker
 *.pid
