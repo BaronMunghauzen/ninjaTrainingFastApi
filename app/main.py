@@ -23,6 +23,11 @@ from app.subscriptions.router import router as router_subscriptions
 from app.notifications.router import router as router_notifications
 from app.last_values.router import router as router_last_values
 from app.logs.router import router as router_logs
+from app.food_recognition.router import router as router_food_recognition
+from app.recipes.router import router as router_recipes
+from app.calorie_calculator.router import router as router_calorie_calculator
+from app.food_progress.router import router as router_food_progress
+from app.meal_plans.router import router as router_meal_plans
 from app.logger import logger
 from pydantic import EmailStr
 from app.email_service import email_service
@@ -536,6 +541,11 @@ app.include_router(router_subscriptions)
 app.include_router(router_notifications)
 app.include_router(router_last_values)
 app.include_router(router_logs)
+app.include_router(router_food_recognition)
+app.include_router(router_recipes)
+app.include_router(router_calorie_calculator)
+app.include_router(router_food_progress)
+app.include_router(router_meal_plans)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

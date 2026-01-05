@@ -29,8 +29,6 @@ from app.achievements.models import Achievement, AchievementType
 from app.password_reset.models import PasswordResetCode
 from app.user_measurements.models import UserMeasurementType, UserMeasurement
 from app.subscriptions.models import SubscriptionPlan, Payment, Subscription
-from app.last_values.models import LastValue
-from app.user_favorite_exercises.models import UserFavoriteExercise
 
 
 
