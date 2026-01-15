@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from uuid import UUID
 from datetime import datetime, date
 
@@ -40,6 +40,7 @@ class SMeal(BaseModel):
     actual: bool = Field(..., description="Актуальность записи")
     user_uuid: Optional[UUID] = Field(None, description="UUID пользователя")
     meal_datetime: datetime = Field(..., description="Дата и время приема пищи")
+    name: Optional[str] = Field(None, description="Название приема пищи")
     calories: float = Field(..., description="Количество калорий в порции")
     proteins: float = Field(..., description="Количество белков в порции")
     fats: float = Field(..., description="Количество жиров в порции")
@@ -56,14 +57,28 @@ class SMeal(BaseModel):
 
 class SMealAdd(BaseModel):
     meal_datetime: datetime = Field(..., description="Дата и время приема пищи")
+    name: Optional[str] = Field(None, description="Название приема пищи")
     calories: float = Field(..., ge=0, description="Количество калорий в порции")
-    proteins: float = Field(..., ge=0, description="Количество белков в порции")
-    fats: float = Field(..., ge=0, description="Количество жиров в порции")
-    carbs: float = Field(..., ge=0, description="Количество углеводов в порции")
+    proteins: Optional[float] = Field(None, ge=0, description="Количество белков в порции")
+    fats: Optional[float] = Field(None, ge=0, description="Количество жиров в порции")
+    carbs: Optional[float] = Field(None, ge=0, description="Количество углеводов в порции")
+    
+    @model_validator(mode='after')
+    def validate_at_least_one_macro(self):
+        """Проверяет, что заполнен хотя бы один из показателей БЖУ"""
+        proteins = self.proteins or 0
+        fats = self.fats or 0
+        carbs = self.carbs or 0
+        
+        if proteins == 0 and fats == 0 and carbs == 0:
+            raise ValueError("Необходимо заполнить хотя бы один из показателей БЖУ (белки, жиры или углеводы)")
+        
+        return self
 
 
 class SMealUpdate(BaseModel):
     meal_datetime: Optional[datetime] = Field(None, description="Дата и время приема пищи")
+    name: Optional[str] = Field(None, description="Название приема пищи")
     calories: Optional[float] = Field(None, ge=0, description="Количество калорий в порции")
     proteins: Optional[float] = Field(None, ge=0, description="Количество белков в порции")
     fats: Optional[float] = Field(None, ge=0, description="Количество жиров в порции")

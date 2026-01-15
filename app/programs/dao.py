@@ -20,13 +20,16 @@ class ProgramDAO(BaseDAO):
 
     @classmethod
     async def find_full_data(cls, object_uuid: UUID):
+        """
+        Оптимизированная версия find_full_data, которая загружает только необходимые данные.
+        НЕ загружает коллекции user_trainings, user_exercises, trainings, user_programs,
+        так как они могут содержать тысячи записей и не нужны для просмотра программы.
+        """
         async with async_session_maker() as session:
+            # Загружаем только необходимые связи: image, category, user
+            # НЕ загружаем коллекции (user_trainings, user_exercises, trainings, user_programs)
             query = select(cls.model).options(
                 joinedload(cls.model.image),
-                joinedload(cls.model.user_trainings),
-                joinedload(cls.model.user_exercises),
-                joinedload(cls.model.trainings),
-                joinedload(cls.model.user_programs),
                 joinedload(cls.model.category),
                 joinedload(cls.model.user)
             ).filter_by(uuid=object_uuid)

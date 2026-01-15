@@ -63,28 +63,17 @@ async def add_measurement_type(
     measurement_type: SUserMeasurementTypeAdd,
     current_user: User = Depends(get_current_user_user)
 ) -> SUserMeasurementTypeResponse:
-    """Добавить новый тип измерения"""
-    try:
-        # Используем user_uuid из запроса
-        measurement_type_data = measurement_type.model_dump()
-        
-        measurement_type_uuid = await UserMeasurementTypeDAO.add(**measurement_type_data)
-        measurement_type_obj = await UserMeasurementTypeDAO.find_full_data(measurement_type_uuid)
-        
-        return SUserMeasurementTypeResponse(
-            message="Тип измерения успешно добавлен!",
-            measurement_type=SUserMeasurementType.model_validate(measurement_type_obj.to_dict())
-        )
-    except IntegrityError as e:
-        if "uq_measurement_type_caption_user" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Тип измерения с таким названием уже существует для данного пользователя"
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ошибка при добавлении типа измерения"
-        )
+    """Добавить новый тип измерения. Если запись с таким названием существует с actual=False, она будет восстановлена."""
+    # Используем user_uuid из запроса
+    measurement_type_data = measurement_type.model_dump()
+    
+    measurement_type_uuid = await UserMeasurementTypeDAO.add(**measurement_type_data)
+    measurement_type_obj = await UserMeasurementTypeDAO.find_full_data(measurement_type_uuid)
+    
+    return SUserMeasurementTypeResponse(
+        message="Тип измерения успешно добавлен!",
+        measurement_type=SUserMeasurementType.model_validate(measurement_type_obj.to_dict())
+    )
 
 
 @router.put("/update/{measurement_type_uuid}", summary="Обновить тип измерения", response_model=SUserMeasurementTypeResponse)

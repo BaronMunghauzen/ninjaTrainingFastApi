@@ -23,12 +23,21 @@ from app.user_program.models import UserProgram
 from app.user_training.models import UserTraining
 from app.user_exercises.models import UserExercise
 from app.files.models import File
+# Import UserFavoriteExercise BEFORE ExerciseReference to ensure it's registered with SQLAlchemy first
+from app.user_favorite_exercises.models import UserFavoriteExercise
 from app.exercise_reference.models import ExerciseReference
 from app.email_verification.models import EmailVerification
 from app.achievements.models import Achievement, AchievementType
 from app.password_reset.models import PasswordResetCode
 from app.user_measurements.models import UserMeasurementType, UserMeasurement
 from app.subscriptions.models import SubscriptionPlan, Payment, Subscription
+from app.recipes.models import Recipe
+from app.user_favorite_recipes.models import UserFavoriteRecipe
+from app.food_recognition.models import FoodRecognition
+from app.meal_plans.models import MealPlan
+from app.calorie_calculator.models import CalorieCalculation
+from app.food_progress.models import DailyTarget, Meal
+from app.last_values.models import LastValue
 
 
 

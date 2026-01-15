@@ -132,6 +132,85 @@ class MealDAO(BaseDAO):
             return objects
     
     @classmethod
+    async def find_all_paginated(cls, page: int = 1, size: int = 20, **filter_by):
+        """
+        Получить приемы пищи с пагинацией
+        
+        Args:
+            page: Номер страницы (начиная с 1)
+            size: Размер страницы
+            **filter_by: Фильтры для поиска
+        
+        Returns:
+            Словарь с items и pagination
+        """
+        filters = filter_by.copy()
+        for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
+            if uuid_field in filters:
+                uuid_value = filters.pop(uuid_field)
+                if uuid_value is not None:
+                    related_obj = await related_dao.find_one_or_none(uuid=uuid_value)
+                    if related_obj:
+                        filters[fk_field] = related_obj.id
+                    else:
+                        return {
+                            "items": [],
+                            "pagination": {
+                                "page": page,
+                                "size": size,
+                                "total_count": 0,
+                                "total_pages": 0,
+                                "has_next": False,
+                                "has_prev": False
+                            }
+                        }
+        
+        async with async_session_maker() as session:
+            # Запрос для получения данных
+            query = select(cls.model).options(
+                joinedload(cls.model.user)
+            ).filter_by(**filters)
+            
+            # Запрос для подсчета общего количества
+            count_query = select(func.count(cls.model.id)).filter_by(**filters)
+            
+            # Сортировка по дате приема пищи, самые новые первыми
+            query = query.order_by(desc(cls.model.meal_datetime))
+            
+            # Получаем общее количество
+            total_count_result = await session.execute(count_query)
+            total_count = total_count_result.scalar() or 0
+            
+            # Применяем пагинацию
+            offset = (page - 1) * size
+            query = query.offset(offset).limit(size)
+            
+            # Выполняем запрос
+            result = await session.execute(query)
+            items = result.unique().scalars().all()
+            
+            # Вычисляем информацию о пагинации
+            total_pages = (total_count + size - 1) // size if total_count > 0 else 0
+            has_next = page < total_pages
+            has_prev = page > 1
+            
+            # Отключаем объекты от сессии
+            for item in items:
+                session.expunge(item)
+            
+            return {
+                "items": items,
+                "pagination": {
+                    "page": page,
+                    "size": size,
+                    "total_count": total_count,
+                    "total_pages": total_pages,
+                    "has_next": has_next,
+                    "has_prev": has_prev
+                }
+            }
+    
+    @classmethod
     async def get_daily_totals(cls, user_id: int, target_date: date) -> dict:
         """
         Получить суммарное количество съеденных КБЖУ за день

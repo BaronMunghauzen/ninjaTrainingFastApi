@@ -110,6 +110,121 @@ class UserMeasurementTypeDAO(BaseDAO):
                 raise e
 
     @classmethod
+    async def add(cls, **values):
+        """Переопределяем add для восстановления архивированных записей.
+        Если запись с таким caption и user_id существует с actual=False, она будет восстановлена (actual=True).
+        Если запись существует с actual=True, будет выброшена ошибка.
+        """
+        from sqlalchemy.exc import IntegrityError
+        
+        async with async_session_maker() as session:
+            try:
+                async with session.begin():
+                    prepared_values = {}
+                    
+                    # Обрабатываем uuid_fk_map для связанных моделей
+                    for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
+                        if uuid_field in values:
+                            uuid_value = values.pop(uuid_field)
+                            # Если uuid_value не None, то ищем связанный объект
+                            if uuid_value is not None:
+                                related_obj = await related_dao.find_one_or_none(uuid=uuid_value)
+                                if related_obj:
+                                    prepared_values[fk_field] = related_obj.id
+                                else:
+                                    raise ValueError(f"Связанный объект {uuid_field} с UUID {uuid_value} не найден")
+                            # Если uuid_value None, то не добавляем поле (позволяет создавать записи без связанного объекта)
+                    
+                    # Обрабатываем остальные поля
+                    for key, value in values.items():
+                        if hasattr(value, 'id'):  # Если значение - объект модели
+                            prepared_values[f"{key}_id"] = value.id
+                        else:
+                            prepared_values[key] = value
+                    
+                    # Получаем caption и user_id для проверки
+                    caption = prepared_values.get('caption')
+                    user_id = prepared_values.get('user_id')
+                    
+                    # Проверяем, существует ли запись с таким caption и user_id с actual = False
+                    if caption and user_id is not None:
+                        query = select(cls.model).where(
+                            and_(
+                                cls.model.caption == caption,
+                                cls.model.user_id == user_id,
+                                cls.model.actual == False
+                            )
+                        )
+                        result = await session.execute(query)
+                        archived_record = result.scalar_one_or_none()
+                        
+                        if archived_record:
+                            # Восстанавливаем архивированную запись
+                            archived_record.actual = True
+                            archived_record.updated_at = datetime.utcnow()
+                            # Обновляем остальные поля, если они переданы
+                            for key, value in prepared_values.items():
+                                if key not in ['caption', 'user_id'] and hasattr(archived_record, key):
+                                    setattr(archived_record, key, value)
+                            
+                            await session.flush()
+                            await session.refresh(archived_record)
+                            return archived_record.uuid
+                    
+                    # Если архивированной записи нет, проверяем, нет ли активной записи
+                    if caption and user_id is not None:
+                        query = select(cls.model).where(
+                            and_(
+                                cls.model.caption == caption,
+                                cls.model.user_id == user_id,
+                                cls.model.actual == True
+                            )
+                        )
+                        result = await session.execute(query)
+                        if result.scalar():
+                            raise ValueError(f"Тип измерения с названием '{caption}' уже существует для данного пользователя")
+                    
+                    # Создаем новую запись через базовый метод
+                    # Проверка уникальности UUID (если есть)
+                    if 'uuid' in prepared_values:
+                        query = select(cls.model).where(cls.model.uuid == prepared_values['uuid'])
+                        exists = await session.execute(query)
+                        if exists.scalar():
+                            raise ValueError(f"Объект с uuid='{prepared_values['uuid']}' уже существует")
+                    
+                    # Создание и сохранение объекта
+                    new_instance = cls.model(**prepared_values)
+                    session.add(new_instance)
+                    await session.flush()
+                    await session.refresh(new_instance)
+                    
+                    return new_instance.uuid
+
+            except ValueError as e:
+                await session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"message": str(e)}
+                )
+            except IntegrityError as e:
+                await session.rollback()
+                if "uq_measurement_type_caption_user" in str(e):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={"message": f"Тип измерения с названием '{caption}' уже существует для данного пользователя"}
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"message": "Ошибка при добавлении типа измерения"}
+                )
+            except SQLAlchemyError as e:
+                await session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={"message": "Database error", "detail": str(e)}
+                )
+
+    @classmethod
     async def find_by_user_and_caption(cls, user_id: Optional[int], caption: str) -> Optional[UserMeasurementType]:
         """Поиск типа измерения по пользователю и названию"""
         async with async_session_maker() as session:

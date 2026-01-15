@@ -97,48 +97,88 @@ class AchievementCheckService:
                 )
             
             if should_create:
-                logger.info(f"🎉 Создаю достижение '{achievement_type.name}' (категория: {achievement_type.category}) для пользователя {user_training.user_id}")
+                # Сохраняем все нужные значения заранее, чтобы избежать lazy loading после отключения от сессии
+                achievement_type_name = achievement_type.name
+                achievement_type_uuid = achievement_type.uuid
+                user_id = user.id
+                fcm_token = user.fcm_token
                 
-                # Создаем достижение с именем из типа достижения
-                achievement = await self.achievement_dao.create_achievement(
-                    achievement_type_id=achievement_type.id,
-                    user_id=user_training.user_id,
-                    user_training_id=user_training.id,
-                    name=achievement_type.name  # Заполняем поле name
-                )
-                created_achievements.append(achievement)
-                logger.info(f"✅ Достижение '{achievement_type.name}' создано (UUID: {achievement.uuid})")
+                logger.info(f"🎉 Создаю достижение '{achievement_type_name}' (категория: {achievement_type.category}) для пользователя {user_training.user_id}")
                 
-                # Добавляем очки к рейтингу пользователя
-                if achievement_type.points:
-                    old_score = user.score or 0
-                    user.score = old_score + achievement_type.points
-                    logger.info(f"📊 Добавлено {achievement_type.points} очков к рейтингу пользователя {user.id} (было: {old_score}, стало: {user.score})")
+                try:
+                    # Создаем достижение (без коммита пока)
+                    from app.achievements.models import Achievement
+                    import uuid
+                    from datetime import datetime
+                    
+                    logger.info(f"[DEBUG] Создаю объект Achievement...")
+                    achievement = Achievement(
+                        uuid=str(uuid.uuid4()),
+                        name=achievement_type_name,
+                        achievement_type_id=achievement_type.id,
+                        user_id=user_training.user_id,
+                        status="active",
+                        user_training_id=user_training.id,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    logger.info(f"[DEBUG] Объект Achievement создан: {achievement.uuid}")
+                    
+                    # Добавляем очки к рейтингу пользователя
+                    achievement_points = achievement_type.points
+                    if achievement_points:
+                        old_score = user.score or 0
+                        user.score = old_score + achievement_points
+                        logger.info(f"📊 Добавлено {achievement_points} очков к рейтингу пользователя {user_id} (было: {old_score}, стало: {user.score})")
+                    
+                    logger.info(f"[DEBUG] Добавляю achievement в session...")
+                    # Сохраняем достижение и обновление score одним коммитом
+                    self.session.add(achievement)
+                    logger.info(f"[DEBUG] Achievement добавлен в session, начинаю commit...")
+                    await self.session.commit()
+                    logger.info(f"[DEBUG] Commit выполнен успешно, начинаю refresh...")
+                    await self.session.refresh(achievement)
+                    logger.info(f"[DEBUG] Refresh выполнен успешно")
+                    
+                    # Сохраняем UUID до отключения от сессии, чтобы избежать проблем с lazy loading
+                    logger.info(f"[DEBUG] Получаю UUID достижения...")
+                    achievement_uuid = achievement.uuid
+                    logger.info(f"[DEBUG] UUID получен: {achievement_uuid}")
+                    
+                    # Отключаем все объекты от сессии, чтобы избежать проблем с lazy loading в BackgroundTasks
+                    logger.info(f"[DEBUG] Отключаю achievement и user от сессии...")
+                    self.session.expunge(achievement)
+                    self.session.expunge(user)
+                    logger.info(f"[DEBUG] Achievement и user отключены от сессии")
+                    
+                    logger.info(f"[DEBUG] Добавляю achievement в список created_achievements...")
+                    created_achievements.append(achievement)
+                    logger.info(f"[DEBUG] Achievement добавлен в список")
+                    
+                    logger.info(f"✅ Достижение '{achievement_type_name}' создано (UUID: {achievement_uuid})")
+                except Exception as e:
+                    logger.error(f"[DEBUG] Ошибка при создании достижения '{achievement_type_name}': {type(e).__name__}: {e}", exc_info=True)
+                    raise
                 
-                await self.session.commit()
-                
+                logger.info(f"[DEBUG] Проверяю наличие FCM токена...")
                 # Отправляем push-уведомление пользователю
-                if user.fcm_token:
-                    logger.info(f"📤 Отправляю push-уведомление о достижении '{achievement_type.name}' пользователю {user.id}")
-                else:
-                    logger.info(f"⏭️ Пропускаю отправку push-уведомления о достижении '{achievement_type.name}' для пользователя {user.id} (FCM токен отсутствует или был очищен)")
-                
-                if user.fcm_token:
+                if fcm_token:
+                    logger.info(f"📤 Отправляю push-уведомление о достижении '{achievement_type_name}' пользователю {user_id}")
                     try:
                         from app.services.firebase_service import FirebaseService
                         FirebaseService.initialize()
                         
                         title = "Поздравляем!"
-                        body = f"Вы получили достижение: {achievement_type.name}"
+                        body = f"Вы получили достижение: {achievement_type_name}"
                         
                         data = {
-                            'achievement_uuid': str(achievement_type.uuid)
+                            'achievement_uuid': str(achievement_type_uuid)
                         }
                         
                         logger.info(f"📝 Формирую push-уведомление: title='{title}', body='{body}', channel='achievements_channel', data={data}")
                         
                         result = FirebaseService.send_notification(
-                            fcm_token=user.fcm_token,
+                            fcm_token=fcm_token,
                             title=title,
                             body=body,
                             data=data,
@@ -149,15 +189,20 @@ class AchievementCheckService:
                         if result == "INVALID_TOKEN":
                             # Не очищаем токен автоматически - может быть временная проблема
                             # Просто логируем и продолжаем попытки отправки для остальных достижений
-                            logger.warning(f"⚠️ FCM токен невалиден для пользователя {user.id}, но продолжаю попытки отправки для остальных достижений. Токен НЕ очищен автоматически.")
+                            logger.warning(f"⚠️ FCM токен невалиден для пользователя {user_id}, но продолжаю попытки отправки для остальных достижений. Токен НЕ очищен автоматически.")
                         elif result == True:
-                            logger.info(f"✅ Отправлено push-уведомление о достижении {achievement_type.name} пользователю {user.id}")
+                            logger.info(f"✅ Отправлено push-уведомление о достижении {achievement_type_name} пользователю {user_id}")
                         else:
-                            logger.warning(f"⚠️ Не удалось отправить push-уведомление о достижении {achievement_type.name} пользователю {user.id} (результат: {result})")
+                            logger.warning(f"⚠️ Не удалось отправить push-уведомление о достижении {achievement_type_name} пользователю {user_id} (результат: {result})")
                     except Exception as e:
                         logger.error(f"❌ Ошибка отправки push-уведомления о достижении: {e}")
         
-        return created_achievements
+        logger.info(f"[DEBUG] Завершаю check_achievements_for_training, создано {len(created_achievements)} достижений")
+        
+        # Возвращаем пустой список, так как достижения уже сохранены в БД
+        logger.info(f"[DEBUG] Возвращаю пустой список (достижения уже сохранены)")
+        # НЕ вызываем expunge_all здесь - это будет сделано в роутере перед закрытием сессии
+        return []
     
     async def _check_special_day(
         self,

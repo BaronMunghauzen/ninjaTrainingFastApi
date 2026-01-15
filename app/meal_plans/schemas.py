@@ -4,6 +4,14 @@ from uuid import UUID
 from datetime import datetime
 
 
+class STargetNutrition(BaseModel):
+    """Целевые уровни КБЖУ"""
+    calories: float = Field(..., ge=0, description="Целевой уровень калорий")
+    proteins: float = Field(..., ge=0, description="Целевой уровень белков")
+    fats: float = Field(..., ge=0, description="Целевой уровень жиров")
+    carbs: float = Field(..., ge=0, description="Целевой уровень углеводов")
+
+
 class SMealPlan(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     uuid: UUID = Field(..., description="Уникальный идентификатор")
@@ -13,23 +21,25 @@ class SMealPlan(BaseModel):
     user_uuid: Optional[UUID] = Field(None, description="UUID пользователя")
     meals_per_day: int = Field(..., description="Количество приемов пищи в день")
     days_count: int = Field(..., description="Количество дней программы")
-    max_repeats_per_week: Optional[int] = Field(None, description="Максимальное количество повторов блюда в неделю")
     allowed_recipe_uuids: Optional[List[UUID]] = Field(None, description="Список разрешенных рецептов (None = все)")
-    include_soup_in_lunch: Optional[bool] = Field(None, description="Включать ли суп в обед")
-    target_calories: float = Field(..., description="Целевой уровень калорий")
-    target_proteins: float = Field(..., description="Целевой уровень белков")
-    target_fats: float = Field(..., description="Целевой уровень жиров")
-    target_carbs: float = Field(..., description="Целевой уровень углеводов")
-    plan_data: Dict[str, Any] = Field(..., description="Сгенерированная программа питания")
-    recommendations: Optional[List[str]] = Field(None, description="Рекомендации и правила")
+    use_all_recipes: bool = Field(..., description="Использовать все доступные рецепты")
+    target_nutrition: Optional[STargetNutrition] = Field(None, description="Целевые уровни КБЖУ")
+    response_data: Optional[Dict[str, Any]] = Field(None, description="Полный ответ от внешнего сервиса")
 
 
 class SMealPlanAdd(BaseModel):
-    meals_per_day: int = Field(..., ge=3, description="Количество приемов пищи в день (минимум 3: завтрак, обед, ужин)")
+    """
+    Создание программы питания
+    
+    Система автоматически определяет количество приёмов пищи:
+    - Обязательные: breakfast, lunch, dinner (всегда создаются)
+    - Опциональные: snack1, snack2, snack3 (добавляются при необходимости)
+    - Максимум 6 приёмов пищи в день
+    """
     days_count: int = Field(..., ge=1, le=90, description="Количество дней на которые составляется программа (1-90)")
-    max_repeats_per_week: Optional[int] = Field(2, ge=1, description="Максимальное количество повторов одного блюда в неделю на один прием пищи")
-    allowed_recipe_uuids: Optional[List[UUID]] = Field(None, description="Список UUID рецептов из которых выбирать (None = все доступные рецепты)")
-    include_soup_in_lunch: bool = Field(True, description="Включать ли суп в обед (если True - обед будет состоять из супа + второго блюда, если False - только второе блюдо)")
+    allowed_recipe_uuids: Optional[List[UUID]] = Field(None, description="Список UUID рецептов из которых выбирать (используется если use_all_recipes=False)")
+    use_all_recipes: bool = Field(False, description="Использовать все доступные рецепты пользователя (системные и пользовательские)")
+    target_nutrition: STargetNutrition = Field(..., description="Целевые уровни КБЖУ")
 
 
 class SMealPlanUpdate(BaseModel):

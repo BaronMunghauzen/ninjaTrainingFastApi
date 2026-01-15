@@ -1,7 +1,7 @@
 import httpx
 import json
 from typing import Optional, Dict, Any
-from fastapi import UploadFile, HTTPException, status
+from fastapi import HTTPException, status
 from app.logger import logger
 
 
@@ -15,14 +15,18 @@ class FoodRecognitionService:
     @classmethod
     async def recognize_food(
         cls,
-        file: UploadFile,
+        file_content: bytes,
+        filename: str,
+        content_type: str,
         comment: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Отправляет запрос на распознавание еды по фото
         
         Args:
-            file: Файл с фотографией
+            file_content: Содержимое файла в байтах
+            filename: Имя файла
+            content_type: MIME-тип файла
             comment: Комментарий для уточнения (необязательный)
             
         Returns:
@@ -34,12 +38,9 @@ class FoodRecognitionService:
                 "Authorization": f"Bearer {cls.AUTH_TOKEN}"
             }
             
-            # Читаем содержимое файла
-            file_content = await file.read()
-            
             # Подготовка данных для multipart/form-data
             files_data = {
-                "file": (file.filename, file_content, file.content_type or "image/jpeg")
+                "file": (filename, file_content, content_type or "image/jpeg")
             }
             
             data = {}
@@ -47,7 +48,7 @@ class FoodRecognitionService:
                 data["comment"] = comment
             
             logger.info(f"Отправка запроса на распознавание еды: {url}")
-            logger.info(f"Файл: {file.filename}, размер: {file.size if hasattr(file, 'size') else 'unknown'}")
+            logger.info(f"Файл: {filename}, размер: {len(file_content)}")
             logger.info(f"Комментарий: {comment}")
             
             async with httpx.AsyncClient(timeout=60.0) as client:

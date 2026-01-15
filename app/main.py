@@ -4,6 +4,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from contextlib import asynccontextmanager
+
+# Import models before routers to ensure SQLAlchemy relationships are properly initialized
+# Import UserFavoriteExercise BEFORE ExerciseReference to ensure it's registered first
+from app.user_favorite_exercises.models import UserFavoriteExercise  # noqa: F401
+from app.exercise_reference.models import ExerciseReference  # noqa: F401
+
 from app.users.router import router as router_users
 from app.categories.router import router as router_categories
 from app.programs.router import router as router_programs
@@ -182,6 +188,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             errors.append(f"Поле '{field_name}' обязательно для заполнения")
         elif err['type'] == 'value_error':
             errors.append(f"Некорректное значение для поля '{err['loc'][-1]}'")
+        elif err['type'] == 'model':
+            # Ошибки валидации модели (например, из @model_validator)
+            errors.append(err['msg'])
         else:
             errors.append(err['msg'])
     

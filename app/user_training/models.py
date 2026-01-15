@@ -38,6 +38,7 @@ class UserTraining(Base):
     stage: Mapped[Optional[int]] = mapped_column(nullable=True, default=1)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     skipped_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    duration: Mapped[Optional[int]] = mapped_column(nullable=True)  # Длительность тренировки в минутах
     week: Mapped[Optional[int]] = mapped_column(nullable=True)  # Номер недели (1-4)
     weekday: Mapped[Optional[int]] = mapped_column(nullable=True)  # День программы (1-7)
     is_rest_day: Mapped[Optional[bool]] = mapped_column(nullable=True)  # Является ли днем отдыха
@@ -67,6 +68,7 @@ class UserTraining(Base):
             "stage": self.stage or 1,  # Возвращаем 1 как значение по умолчанию
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "skipped_at": self.skipped_at.isoformat() if self.skipped_at else None,
+            "duration": self.duration,
             "week": self.week,
             "weekday": self.weekday,
             "is_rest_day": self.is_rest_day

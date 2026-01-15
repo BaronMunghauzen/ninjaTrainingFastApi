@@ -21,6 +21,7 @@ class SUserTraining(BaseModel):
     user_id: int = Field(..., description="ID пользователя")
     training_date: date = Field(..., description="Дата тренировки")
     status: TrainingStatusLiteral = Field(..., description="Статус тренировки")
+    duration: Optional[int] = Field(None, description="Длительность тренировки в минутах")
     week: Optional[int] = Field(None, description="Номер недели (1-4)")
     weekday: Optional[int] = Field(None, description="День программы (1-7)")
     is_rest_day: Optional[bool] = Field(None, description="Является ли днем отдыха")

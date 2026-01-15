@@ -1,6 +1,8 @@
 from uuid import UUID
 from datetime import datetime, timezone
 import traceback
+import asyncio
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from app.user_training.dao import UserTrainingDAO
@@ -379,11 +381,33 @@ async def pass_user_training(
         raise HTTPException(status_code=400, detail=f"Тренировка уже имеет статус {current_status}")
     
     # Обновляем статус на PASSED и заполняем completed_at
-    current_time = datetime.now()
+    # Используем UTC для совместимости с created_at (который тоже в UTC через datetime.utcnow)
+    current_time = datetime.utcnow()
+    
+    # Сохраняем created_at для расчета длительности
+    training_created_at = user_training.created_at
+    
+    # Рассчитываем длительность только для тренировок без program_id
+    duration_minutes = None
+    if user_training.program_id is None:
+        # Оба времени должны быть naive datetime (без timezone) в UTC
+        # created_at создается через datetime.utcnow() (naive UTC)
+        # current_time тоже datetime.utcnow() (naive UTC)
+        # Поэтому можно напрямую вычитать
+        duration_seconds = (current_time - training_created_at).total_seconds()
+        duration_minutes = max(1, int(duration_seconds / 60))  # Минимум 1 минута, округление вниз
+        logger.info(f"Рассчитана длительность тренировки {user_training_uuid}: {duration_minutes} минут (program_id отсутствует, created_at: {training_created_at}, completed_at: {current_time}, разница: {duration_seconds} сек)")
+    else:
+        logger.info(f"Расчет длительности не требуется для тренировки {user_training_uuid} (program_id={user_training.program_id})")
+    
     update_data = {
         'status': 'PASSED',
         'completed_at': current_time
     }
+    
+    # Добавляем duration в update_data, если он был рассчитан
+    if duration_minutes is not None:
+        update_data['duration'] = duration_minutes
     
     logger.info(f"Обновляю статус тренировки {user_training_uuid} на PASSED")
     check = await UserTrainingDAO.update(user_training_uuid, **update_data)
@@ -412,23 +436,65 @@ async def pass_user_training(
     logger.info(f"is_rest_day: {user_training.is_rest_day}")
     if not user_training.is_rest_day:
         logger.info(f"Запускаю фоновую задачу проверки достижений для тренировки {user_training_uuid}")
+        
         async def check_achievements_task():
             from app.achievements.check_service import AchievementCheckService
             from app.database import async_session_maker
-            async with async_session_maker() as session:
-                try:
-                    logger.info(f"[Background] Начинаю проверку достижений для тренировки {user_training_uuid}")
-                    # Получаем обновленную тренировку
-                    updated_training = await UserTrainingDAO.find_full_data(user_training_uuid)
+            from sqlalchemy import select
+            from app.user_training.models import UserTraining
+            
+            logger.info(f"[Background] Создаю сессию для проверки достижений...")
+            session = None
+            try:
+                async with async_session_maker() as session:
+                    logger.info(f"[Background] Сессия создана, начинаю проверку достижений для тренировки {user_training_uuid}")
+                    logger.info(f"[Background] Выполняю запрос для загрузки UserTraining...")
+                    # Загружаем тренировку напрямую через сессию, чтобы она была привязана к той же сессии
+                    result = await session.execute(
+                        select(UserTraining).where(UserTraining.uuid == user_training_uuid)
+                    )
+                    logger.info(f"[Background] Запрос выполнен, получаю результат...")
+                    updated_training = result.scalar_one_or_none()
+                    logger.info(f"[Background] Тренировка {'найдена' if updated_training else 'не найдена'}")
+                    
                     if updated_training:
+                        logger.info(f"[Background] Создаю AchievementCheckService...")
                         check_service = AchievementCheckService(session)
-                        achievements = await check_service.check_achievements_for_training(updated_training)
-                        logger.info(f"[Background] Проверка достижений завершена, получено достижений: {len(achievements)}")
+                        logger.info(f"[Background] Вызываю check_achievements_for_training...")
+                        achievements = None
+                        try:
+                            achievements = await check_service.check_achievements_for_training(updated_training)
+                        finally:
+                            # ВСЕГДА отключаем все объекты от сессии сразу после вызова функции
+                            # Это предотвратит проблемы при закрытии сессии
+                            logger.info(f"[Background] Отключаю все объекты от сессии через expunge_all...")
+                            try:
+                                session.expunge_all()
+                                logger.info(f"[Background] Все объекты отключены от сессии")
+                            except Exception as expunge_error:
+                                logger.warning(f"[Background] Ошибка при expunge_all (игнорирую): {expunge_error}")
+                        
+                        # Логируем результат после expunge_all
+                        if achievements is not None:
+                            logger.info(f"[Background] Проверка достижений завершена, получено достижений: {len(achievements)}")
+                        else:
+                            logger.info(f"[Background] Проверка достижений завершена")
                     else:
                         logger.warning(f"[Background] Тренировка {user_training_uuid} не найдена для проверки достижений")
-                except Exception as e:
-                    logger.error(f"[Background] Ошибка при проверке достижений для {user_training_uuid}: {e}", exc_info=True)
+                    
+                    logger.info(f"[Background] Выход из async with...")
+            except Exception as e:
+                error_type = type(e).__name__
+                # Игнорируем MissingGreenlet ошибки - они не критичны, достижения уже сохранены
+                if "MissingGreenlet" in error_type or "greenlet_spawn" in str(e):
+                    logger.warning(f"[Background] Игнорирую некритичную ошибку при закрытии сессии: {error_type}: {e}")
+                else:
+                    logger.error(f"[Background] Ошибка при проверке достижений для {user_training_uuid}: {error_type}: {e}", exc_info=True)
+            finally:
+                logger.info(f"[Background] Финальная очистка завершена")
         
+        # Используем BackgroundTasks с async функцией
+        # FastAPI правильно обрабатывает async функции в BackgroundTasks
         background_tasks.add_task(check_achievements_task)
     else:
         logger.info(f"Тренировка {user_training_uuid} - день отдыха, пропускаю проверку достижений")
@@ -576,6 +642,7 @@ async def get_active_user_free_trainings(
                 "uuid": str(ut.uuid),
                 "training_date": ut.training_date.isoformat() if ut.training_date else None,
                 "status": ut.status.value,
+                "duration": ut.duration,
                 "stage": ut.stage,
                 "week": ut.week,
                 "weekday": ut.weekday,

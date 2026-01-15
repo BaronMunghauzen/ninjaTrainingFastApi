@@ -8,6 +8,7 @@ from datetime import datetime
 if TYPE_CHECKING:
     from app.users.models import User
     from app.files.models import File
+    from app.user_favorite_recipes.models import UserFavoriteRecipe
 
 
 class Recipe(Base):
@@ -49,6 +50,7 @@ class Recipe(Base):
     # Связи
     user: Mapped[Optional["User"]] = relationship("User")
     image: Mapped[Optional["File"]] = relationship("File")
+    favorited_by_users: Mapped[list["UserFavoriteRecipe"]] = relationship("UserFavoriteRecipe", back_populates="recipe")
     
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id}, uuid={self.uuid}, name={self.name})"

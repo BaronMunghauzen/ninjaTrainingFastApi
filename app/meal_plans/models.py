@@ -25,25 +25,18 @@ class MealPlan(Base):
     # Параметры создания программы
     meals_per_day: Mapped[int] = mapped_column(nullable=False)  # Количество приемов пищи в день (минимум 3)
     days_count: Mapped[int] = mapped_column(nullable=False)  # Количество дней программы
-    max_repeats_per_week: Mapped[int] = mapped_column(nullable=True, default=2)  # Максимальное количество повторов блюда в неделю на один прием пищи
     
     # Список UUID рецептов, из которых можно выбирать (JSON массив, None = все рецепты)
     allowed_recipe_uuids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
-    # Включать ли суп в обед
-    include_soup_in_lunch: Mapped[bool] = mapped_column(default=True, server_default=text('true'), nullable=False)
+    # Использовать все доступные рецепты
+    use_all_recipes: Mapped[bool] = mapped_column(default=False, server_default=text('false'), nullable=False)
     
-    # Целевые уровни КБЖУ (из последнего актуального расчета или целевого уровня)
-    target_calories: Mapped[float] = mapped_column(nullable=False)
-    target_proteins: Mapped[float] = mapped_column(nullable=False)
-    target_fats: Mapped[float] = mapped_column(nullable=False)
-    target_carbs: Mapped[float] = mapped_column(nullable=False)
+    # Целевые уровни КБЖУ (JSON объект с полями calories, proteins, fats, carbs)
+    target_nutrition: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON объект
     
-    # Сгенерированная программа (JSON структура с днями и приемами пищи)
-    plan_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON структура
-    
-    # Дополнительные правила и рекомендации
-    recommendations: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON список правил
+    # Полный ответ от внешнего сервиса (сохраняется целиком)
+    response_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON структура
     
     # Связи
     user: Mapped["User"] = relationship("User")
@@ -60,14 +53,9 @@ class MealPlan(Base):
             "user_uuid": str(self.user.uuid) if self.user else None,
             "meals_per_day": self.meals_per_day,
             "days_count": self.days_count,
-            "max_repeats_per_week": self.max_repeats_per_week,
             "allowed_recipe_uuids": json.loads(self.allowed_recipe_uuids) if self.allowed_recipe_uuids else None,
-            "include_soup_in_lunch": self.include_soup_in_lunch,
-            "target_calories": self.target_calories,
-            "target_proteins": self.target_proteins,
-            "target_fats": self.target_fats,
-            "target_carbs": self.target_carbs,
-            "plan_data": json.loads(self.plan_data) if self.plan_data else None,
-            "recommendations": json.loads(self.recommendations) if self.recommendations else None
+            "use_all_recipes": self.use_all_recipes,
+            "target_nutrition": json.loads(self.target_nutrition) if self.target_nutrition else None,
+            "response_data": json.loads(self.response_data) if self.response_data else None
         }
 

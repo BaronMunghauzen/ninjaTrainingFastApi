@@ -1,6 +1,6 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
 import json
 
 from app.meal_plans.dao import MealPlanDAO
@@ -8,8 +8,6 @@ from app.meal_plans.schemas import SMealPlan, SMealPlanAdd, SMealPlanUpdate, SMe
 from app.meal_plans.service import MealPlanService
 from app.users.dependencies import get_current_user_user
 from app.users.models import User
-from app.calorie_calculator.dao import CalorieCalculationDAO
-from app.food_progress.dao import DailyTargetDAO
 from app.logger import logger
 
 router = APIRouter(prefix='/api/meal-plans', tags=['Программы питания'])
@@ -23,65 +21,35 @@ async def generate_meal_plan(
     """
     Автоматически создать программу питания
     
-    Логика генерации:
-    - Учитываются выбранные рецепты (или все доступные)
-    - Соблюдается разнообразие блюд (ограничение на повторы в неделю)
-    - Распределение КБЖУ по приемам пищи согласно лучшим практикам
-    - Подбор блюд с учетом целевых КБЖУ с допуском ±15%
-    - Для обеда возможно добавление супа + второго блюда (контролируется параметром include_soup_in_lunch)
-    
-    Целевые КБЖУ берутся из последнего актуального расчета калорий или целевого уровня.
+    Новая логика:
+    - Обязательные приёмы пищи: breakfast, lunch, dinner (всегда создаются)
+    - Опциональные приёмы пищи: snack1, snack2, snack3 (добавляются при необходимости)
+    - Система автоматически определяет количество приёмов пищи на основе целевых КБЖУ
+    - Максимум 6 приёмов пищи в день
+    - Жёсткие правила категорий блюд
+    - Batch cooking для breakfast, lunch, dinner (готовка на 2 дня)
     """
     try:
-        # Получаем целевые КБЖУ
-        target_calories = None
-        target_proteins = None
-        target_fats = None
-        target_carbs = None
-        
-        # Сначала пытаемся взять из последнего расчета калорий
-        calorie_calc = await CalorieCalculationDAO.find_last_actual(user.id)
-        if calorie_calc:
-            # Берем КБЖУ для цели из расчета
-            if calorie_calc.goal.value == "weight_loss":
-                macros = json.loads(calorie_calc.calories_for_weight_loss or "{}")
-            elif calorie_calc.goal.value == "muscle_gain":
-                macros = json.loads(calorie_calc.calories_for_gain or "{}")
-            else:
-                macros = json.loads(calorie_calc.calories_for_maintenance or "{}")
-            
-            target_calories = macros.get("calories", calorie_calc.tdee)
-            target_proteins = macros.get("proteins", 0)
-            target_fats = macros.get("fats", 0)
-            target_carbs = macros.get("carbs", 0)
-        
-        # Если нет расчета, берем из целевых уровней
-        if not target_calories:
-            daily_target = await DailyTargetDAO.find_last_actual(user.id)
-            if daily_target:
-                target_calories = daily_target.target_calories
-                target_proteins = daily_target.target_proteins
-                target_fats = daily_target.target_fats
-                target_carbs = daily_target.target_carbs
-        
-        if not target_calories:
-            raise HTTPException(
-                status_code=400,
-                detail="Сначала установите целевые уровни КБЖУ (расчет калорий или целевые уровни)"
-            )
+        # Подготавливаем список UUID рецептов
+        allowed_recipe_uuids = None
+        if not data.use_all_recipes:
+            if not data.allowed_recipe_uuids:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Необходимо указать allowed_recipe_uuids или установить use_all_recipes=True"
+                )
+            allowed_recipe_uuids = [str(uuid) for uuid in data.allowed_recipe_uuids]
         
         # Генерируем программу питания
+        logger.info(f"Генерация программы питания для пользователя {user.id}")
         plan_data = await MealPlanService.generate_meal_plan(
             user_id=user.id,
-            meals_per_day=data.meals_per_day,
             days_count=data.days_count,
-            max_repeats_per_week=data.max_repeats_per_week or 2,
-            allowed_recipe_uuids=[str(uuid) for uuid in data.allowed_recipe_uuids] if data.allowed_recipe_uuids else None,
-            target_calories=target_calories,
-            target_proteins=target_proteins,
-            target_fats=target_fats,
-            target_carbs=target_carbs,
-            include_soup_in_lunch=data.include_soup_in_lunch
+            allowed_recipe_uuids=allowed_recipe_uuids,
+            target_calories=data.target_nutrition.calories,
+            target_proteins=data.target_nutrition.proteins,
+            target_fats=data.target_nutrition.fats,
+            target_carbs=data.target_nutrition.carbs
         )
         
         # Деактуализируем предыдущие программы
@@ -89,23 +57,34 @@ async def generate_meal_plan(
         for prev in prev_plans:
             await MealPlanDAO.update(prev.uuid, actual=False)
         
+        # Подсчитываем среднее количество приёмов пищи в день для сохранения в БД (опционально, для статистики)
+        avg_meals_per_day = 3  # Минимум 3 (breakfast, lunch, dinner)
+        if plan_data.get("days") and len(plan_data["days"]) > 0:
+            total_meals = sum(len(day.get("meals", [])) for day in plan_data["days"])
+            avg_meals_per_day = round(total_meals / len(plan_data["days"]))
+        
+        # Подготавливаем целевые КБЖУ для сохранения
+        target_nutrition = {
+            "calories": data.target_nutrition.calories,
+            "proteins": data.target_nutrition.proteins,
+            "fats": data.target_nutrition.fats,
+            "carbs": data.target_nutrition.carbs
+        }
+        
         # Сохраняем программу в БД
         db_data = {
             "user_id": user.id,
-            "meals_per_day": data.meals_per_day,
+            "meals_per_day": avg_meals_per_day,  # Сохраняем для обратной совместимости (система сама определяет)
             "days_count": data.days_count,
-            "max_repeats_per_week": data.max_repeats_per_week or 2,
             "allowed_recipe_uuids": json.dumps([str(uuid) for uuid in data.allowed_recipe_uuids], ensure_ascii=False) if data.allowed_recipe_uuids else None,
-            "include_soup_in_lunch": data.include_soup_in_lunch,
-            "target_calories": target_calories,
-            "target_proteins": target_proteins,
-            "target_fats": target_fats,
-            "target_carbs": target_carbs,
-            "plan_data": json.dumps(plan_data, ensure_ascii=False),
-            "recommendations": json.dumps(MealPlanService.RECOMMENDATIONS, ensure_ascii=False)
+            "use_all_recipes": data.use_all_recipes,
+            "target_nutrition": json.dumps(target_nutrition, ensure_ascii=False),
+            "response_data": json.dumps(plan_data, ensure_ascii=False)  # Сохраняем plan_data в response_data
         }
         
         plan_uuid = await MealPlanDAO.add(**db_data)
+        
+        logger.info(f"Программа питания успешно создана для пользователя {user.id}, UUID: {plan_uuid}")
         
         return {
             "plan_uuid": plan_uuid,
@@ -114,8 +93,14 @@ async def generate_meal_plan(
         
     except HTTPException:
         raise
+    except ValueError as e:
+        logger.error(f"Ошибка валидации при генерации программы питания для пользователя {user.id}: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Ошибка при генерации программы питания для пользователя {user.id}: {e}")
+        logger.error(f"Ошибка при генерации программы питания для пользователя {user.id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка при генерации программы питания: {str(e)}"
@@ -124,11 +109,16 @@ async def generate_meal_plan(
 
 @router.get("/", summary="Получить все программы питания")
 async def get_all_meal_plans(
+    actual: Optional[bool] = Query(None, description="Фильтр по актуальности записи"),
     user: User = Depends(get_current_user_user)
 ) -> List[dict]:
     """Получить все программы питания пользователя"""
     try:
-        plans = await MealPlanDAO.find_all(user_uuid=str(user.uuid))
+        filters = {"user_uuid": str(user.uuid)}
+        if actual is not None:
+            filters["actual"] = actual
+        
+        plans = await MealPlanDAO.find_all(**filters)
         return [p.to_dict() for p in plans]
     except Exception as e:
         logger.error(f"Ошибка при получении программ питания: {e}")

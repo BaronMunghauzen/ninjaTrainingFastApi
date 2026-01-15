@@ -1,16 +1,19 @@
 """
 Сервис для автоматического создания программы питания
 
-Логика подбора блюд:
-1. Предфильтрация пулов блюд по категориям (завтрак, обед, ужин, супы)
-2. Ограничения по разнообразию (не использовать одно блюдо более N раз в неделю на один прием)
-3. Распределение КБЖУ по приемам пищи (завтрак ~25%, обед ~35%, ужин ~30%, перекусы ~10%)
-4. Подбор блюд с учетом целевых КБЖУ (knapsack-подобный алгоритм)
-5. Оптимизация для соблюдения пропорций макронутриентов
+Новая логика (без указания количества приёмов пищи):
+1. Обязательные приёмы пищи: breakfast, lunch, dinner (всегда создаются)
+2. Опциональные приёмы пищи: snack1, snack2, snack3 (добавляются при необходимости)
+3. Система автоматически определяет количество приёмов пищи на основе целевых КБЖУ
+4. Максимум 6 приёмов пищи в день
+5. Жёсткие правила категорий блюд
+6. Роли блюд: MAIN (основное), SIDE (добавка), FILLER (добор калорий)
+7. Batch cooking для breakfast, lunch, dinner (готовка на 2 дня)
 """
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import random
 import json
+from itertools import product
 from app.recipes.dao import RecipeDAO
 from app.recipes.models import Recipe
 from app.logger import logger
@@ -19,52 +22,55 @@ from app.logger import logger
 class MealPlanService:
     """Сервис для генерации программ питания"""
     
-    # Распределение калорий по приемам пищи (в процентах от дневной нормы)
-    # Основано на лучших практиках диетологии
+    # Распределение КБЖУ по обязательным приёмам пищи (в процентах от дневной нормы)
+    # Эти значения используются как начальные цели, затем корректируются
     MEAL_DISTRIBUTION = {
-        "breakfast": 0.25,    # Завтрак - 25%
-        "lunch": 0.35,        # Обед - 35%
-        "dinner": 0.30,       # Ужин - 30%
-        "snack": 0.10         # Перекусы - 10%
+        "breakfast": 0.30,  # Завтрак - 30%
+        "lunch": 0.35,      # Обед - 35%
+        "dinner": 0.25      # Ужин - 25%
+        # Остальные 10% идут на snack-приёмы
     }
     
-    # Категории приемов пищи
-    MEAL_CATEGORIES = ["breakfast", "lunch", "dinner", "snack"]
+    # Таблица допустимости категорий блюд для каждого приёма пищи
+    # Ключ - приём пищи, значение - список разрешённых типов рецептов
+    MEAL_TYPE_ALLOWED = {
+        "breakfast": ["breakfast", "dessert"],  # breakfast, dessert(light)
+        "lunch": ["main", "salad"],              # lunch, dinner + salad
+        "dinner": ["main", "salad"],             # dinner + salad
+        "snack": ["snack", "salad", "dessert"]   # snack, salad, dessert(light), soup(light)
+    }
     
-    # Рекомендации для программы питания
-    RECOMMENDATIONS = [
-        "Пейте достаточное количество воды: 30-35 мл на 1 кг веса в день",
-        "Распределяйте приемы пищи равномерно в течение дня",
-        "Не пропускайте завтрак - это важный прием пищи для метаболизма",
-        "Ужин должен быть легким и не позже чем за 2-3 часа до сна",
-        "Включайте в рацион достаточное количество овощей и фруктов",
-        "Следите за балансом белков, жиров и углеводов",
-        "Адаптируйте программу под свои вкусовые предпочтения",
-        "При необходимости корректируйте порции в зависимости от уровня активности"
-    ]
+    # Таблица допустимости категорий (category) для каждого приёма пищи
+    # Жёсткая валидация - category должен соответствовать meal_type
+    MEAL_CATEGORY_ALLOWED = {
+        "breakfast": ["завтрак", "breakfast", "десерт", "dessert"],
+        "lunch": ["обед", "lunch", "ужин", "dinner", "салат", "salad"],
+        "dinner": ["ужин", "dinner", "салат", "salad"],
+        "snack": ["перекус", "snack", "салат", "salad", "десерт", "dessert", "завтрак", "breakfast"]
+    }
+    
+    # Роли блюд
+    ROLE_MAIN = "MAIN"      # Основное блюдо приёма пищи
+    ROLE_SIDE = "SIDE"      # Добавка (салат, гарнир)
+    ROLE_FILLER = "FILLER"  # Добор калорий (десерт, перекус)
     
     @classmethod
     async def generate_meal_plan(
         cls,
         user_id: int,
-        meals_per_day: int,
         days_count: int,
-        max_repeats_per_week: int,
         allowed_recipe_uuids: Optional[List[str]],
         target_calories: float,
         target_proteins: float,
         target_fats: float,
-        target_carbs: float,
-        include_soup_in_lunch: bool = True
+        target_carbs: float
     ) -> Dict[str, Any]:
         """
         Генерация программы питания
         
         Args:
             user_id: ID пользователя
-            meals_per_day: Количество приемов пищи в день (минимум 3)
             days_count: Количество дней программы
-            max_repeats_per_week: Максимальное количество повторов блюда в неделю на один прием
             allowed_recipe_uuids: Список разрешенных рецептов (None = все)
             target_calories: Целевой уровень калорий
             target_proteins: Целевой уровень белков
@@ -72,22 +78,7 @@ class MealPlanService:
             target_carbs: Целевой уровень углеводов
             
         Returns:
-            Словарь с программой питания в формате:
-            {
-                "days": [
-                    {
-                        "day": 1,
-                        "meals": [
-                            {
-                                "meal_type": "breakfast",
-                                "recipes": [{"uuid": "...", "name": "...", "calories": ..., ...}],
-                                "total_calories": ...,
-                                ...
-                            }
-                        ]
-                    }
-                ]
-            }
+            Словарь с программой питания
         """
         # Получаем доступные рецепты
         recipes = await cls._get_available_recipes(user_id, allowed_recipe_uuids)
@@ -95,98 +86,630 @@ class MealPlanService:
         if not recipes:
             raise ValueError("Нет доступных рецептов для создания программы питания")
         
-        # Разделяем рецепты по категориям
-        recipes_by_category = cls._categorize_recipes(recipes)
+        # Преобразуем рецепты в словари
+        recipes_dict = cls._recipes_to_dict(recipes)
         
-        # Определяем типы приемов пищи
-        meal_types = cls._determine_meal_types(meals_per_day)
+        # Целевые КБЖУ для дня
+        target_nutrition = {
+            "calories": target_calories,
+            "proteins": target_proteins,
+            "fats": target_fats,
+            "carbs": target_carbs
+        }
         
-        # Генерируем программу по дням
-        plan_days = []
-        dish_usage = {}  # Отслеживание использования блюд: {(recipe_uuid, meal_type): count}
+        # Создаём структуру дней с учётом batch cooking
+        # Breakfast, lunch, dinner готовятся на 2 дня
+        days = [None] * days_count  # Инициализируем список дней
         
-        for day in range(1, days_count + 1):
-            day_plan = {
-                "day": day,
-                "meals": []
+        # Обрабатываем дни парами для batch cooking
+        for day_start in range(0, days_count, 2):
+            day_end = min(day_start + 1, days_count - 1)
+            
+            # Создаём батчи для breakfast, lunch, dinner
+            breakfast_batch = cls._build_meal_slot(
+                meal_type="breakfast",
+                recipes_dict=recipes_dict,
+                slot_target=cls._calculate_slot_target(target_nutrition, "breakfast"),
+                day_idx=day_start,
+                days_count=days_count
+            )
+            
+            lunch_batch = cls._build_meal_slot(
+                meal_type="lunch",
+                recipes_dict=recipes_dict,
+                slot_target=cls._calculate_slot_target(target_nutrition, "lunch"),
+                day_idx=day_start,
+                days_count=days_count
+            )
+            
+            dinner_batch = cls._build_meal_slot(
+                meal_type="dinner",
+                recipes_dict=recipes_dict,
+                slot_target=cls._calculate_slot_target(target_nutrition, "dinner"),
+                day_idx=day_start,
+                days_count=days_count
+            )
+            
+            # Создаём планы для обоих дней в батче
+            for day_idx in [day_start, day_end]:
+                if day_idx < days_count:
+                    day_plan = cls._build_day_plan_with_batches(
+                        day_idx=day_idx,
+                        recipes_dict=recipes_dict,
+                        target_nutrition=target_nutrition,
+                        days_count=days_count,
+                        breakfast_batch=breakfast_batch,
+                        lunch_batch=lunch_batch,
+                        dinner_batch=dinner_batch
+                    )
+                    days[day_idx] = day_plan
+        
+        return {
+            "days": days
+        }
+    
+    @classmethod
+    def _build_day_plan_with_batches(
+        cls,
+        day_idx: int,
+        recipes_dict: List[Dict[str, Any]],
+        target_nutrition: Dict[str, float],
+        days_count: int,
+        breakfast_batch: Optional[List[Dict[str, Any]]],
+        lunch_batch: Optional[List[Dict[str, Any]]],
+        dinner_batch: Optional[List[Dict[str, Any]]]
+    ) -> Dict[str, Any]:
+        """
+        Построить план одного дня с использованием батчей для основных приёмов пищи
+        """
+        day_plan = {
+            "day": day_idx + 1,
+            "meals": [],
+            "target_nutrition": target_nutrition.copy(),
+            "actual_nutrition": {"calories": 0.0, "proteins": 0.0, "fats": 0.0, "carbs": 0.0}
+        }
+        
+        # Используем батчи для основных приёмов пищи
+        if breakfast_batch:
+            day_plan["meals"].append({
+                "meal_type": "breakfast",
+                "recipes": breakfast_batch.copy(),
+                "role": cls.ROLE_MAIN
+            })
+        else:
+            # Если батч не предоставлен, создаём заново
+            breakfast_meals = cls._build_meal_slot(
+                meal_type="breakfast",
+                recipes_dict=recipes_dict,
+                slot_target=cls._calculate_slot_target(target_nutrition, "breakfast"),
+                day_idx=day_idx,
+                days_count=days_count
+            )
+            if breakfast_meals:
+                day_plan["meals"].append({
+                    "meal_type": "breakfast",
+                    "recipes": breakfast_meals,
+                    "role": cls.ROLE_MAIN
+                })
+        
+        if lunch_batch:
+            day_plan["meals"].append({
+                "meal_type": "lunch",
+                "recipes": lunch_batch.copy(),
+                "role": cls.ROLE_MAIN
+            })
+        else:
+            lunch_meals = cls._build_meal_slot(
+                meal_type="lunch",
+                recipes_dict=recipes_dict,
+                slot_target=cls._calculate_slot_target(target_nutrition, "lunch"),
+                day_idx=day_idx,
+                days_count=days_count
+            )
+            if lunch_meals:
+                day_plan["meals"].append({
+                    "meal_type": "lunch",
+                    "recipes": lunch_meals,
+                    "role": cls.ROLE_MAIN
+                })
+        
+        if dinner_batch:
+            day_plan["meals"].append({
+                "meal_type": "dinner",
+                "recipes": dinner_batch.copy(),
+                "role": cls.ROLE_MAIN
+            })
+        else:
+            dinner_meals = cls._build_meal_slot(
+                meal_type="dinner",
+                recipes_dict=recipes_dict,
+                slot_target=cls._calculate_slot_target(target_nutrition, "dinner"),
+                day_idx=day_idx,
+                days_count=days_count
+            )
+            if dinner_meals:
+                day_plan["meals"].append({
+                    "meal_type": "dinner",
+                    "recipes": dinner_meals,
+                    "role": cls.ROLE_MAIN
+                })
+        
+        # Посчитываем текущие итоги дня
+        current_totals = cls._calculate_day_totals(day_plan["meals"])
+        
+        # Решаем, нужны ли доп. приёмы пищи (snack)
+        # Динамически добавляем snack пока есть дефицит
+        snack_idx = 0
+        max_snacks = 6 - len(day_plan["meals"])  # Максимум 6 приёмов в день
+        
+        while snack_idx < max_snacks:
+            remaining_calories = target_nutrition["calories"] - current_totals["calories"]
+            remaining_proteins = target_nutrition["proteins"] - current_totals["proteins"]
+            remaining_fats = target_nutrition["fats"] - current_totals["fats"]
+            remaining_carbs = target_nutrition["carbs"] - current_totals["carbs"]
+            
+            # Проверяем, нужно ли добавлять snack
+            # Добавляем если: калории > 250 ИЛИ белки > 20
+            if remaining_calories <= 250 and remaining_proteins <= 20:
+                break
+            
+            # Определяем целевые КБЖУ для snack
+            snack_target = {
+                "calories": max(150, remaining_calories / (max_snacks - snack_idx)),
+                "proteins": max(10, remaining_proteins / (max_snacks - snack_idx)),
+                "fats": max(0, remaining_fats / (max_snacks - snack_idx)),
+                "carbs": max(0, remaining_carbs / (max_snacks - snack_idx))
             }
             
-            # Отслеживание блюд, использованных в текущий день (для предотвращения повторов)
-            day_dishes = set()
+            # Подбираем snack
+            snack_meals = cls._build_meal_slot(
+                meal_type="snack",
+                recipes_dict=recipes_dict,
+                slot_target=snack_target,
+                day_idx=day_idx,
+                days_count=days_count,
+                is_snack=True
+            )
             
-            for meal_type in meal_types:
-                # Получаем пул кандидатов для этого приема пищи
-                candidates = cls._get_meal_candidates(
-                    recipes_by_category,
-                    meal_type,
-                    allowed_recipe_uuids
-                )
+            if snack_meals:
+                day_plan["meals"].append({
+                    "meal_type": f"snack{snack_idx + 1}",
+                    "recipes": snack_meals,
+                    "role": cls.ROLE_FILLER
+                })
                 
-                if not candidates:
-                    logger.warning(f"Нет кандидатов для {meal_type} на день {day}")
-                    continue
-                
-                # Рассчитываем целевые КБЖУ для приема пищи
-                target_meal = cls._calculate_meal_targets(
-                    meal_type,
-                    target_calories,
-                    target_proteins,
-                    target_fats,
-                    target_carbs,
-                    meals_per_day
-                )
-                
-                # Подбираем блюда для приема пищи
-                selected_recipes = cls._select_recipes_for_meal(
-                    candidates,
-                    target_meal,
-                    dish_usage,
-                    meal_type,
-                    day,
-                    max_repeats_per_week,
-                    day_dishes,  # Передаем список уже использованных в этот день блюд
-                    include_soup_in_lunch  # Параметр для контроля добавления супа
-                )
-                
-                # Добавляем выбранные блюда в список использованных за день
-                for recipe in selected_recipes:
-                    day_dishes.add(recipe["uuid"])
-                
-                # Рассчитываем фактические КБЖУ приема пищи
-                meal_totals = cls._calculate_meal_totals(selected_recipes)
-                
-            day_plan["meals"].append({
-                "meal_type": meal_type,
-                "recipes": selected_recipes,
-                "target_calories": target_meal["calories"],
-                "target_proteins": target_meal["proteins"],
-                "target_fats": target_meal["fats"],
-                "target_carbs": target_meal["carbs"],
+                # Пересчитываем итоги
+                current_totals = cls._calculate_day_totals(day_plan["meals"])
+                snack_idx += 1
+            else:
+                # Если не удалось подобрать snack, прекращаем
+                break
+        
+        # Финальная коррекция порций для всего дня
+        cls._final_day_correction(day_plan, target_nutrition)
+        
+        # Пересчитываем итоговые КБЖУ дня
+        day_plan["actual_nutrition"] = cls._calculate_day_totals(day_plan["meals"])
+        
+        # Форматируем выходные данные
+        formatted_meals = []
+        snack_count_final = len([m for m in day_plan["meals"] if m.get("meal_type", "").startswith("snack")])
+        
+        for meal in day_plan["meals"]:
+            meal_totals = cls._calculate_meal_totals(meal["recipes"])
+            meal_target = cls._get_meal_target(meal["meal_type"], target_nutrition, snack_count_final)
+            formatted_meals.append({
+                "meal_type": meal["meal_type"],
+                "recipes": meal["recipes"],
+                "target_calories": meal_target.get("calories", 0),
+                "target_proteins": meal_target.get("proteins", 0),
+                "target_fats": meal_target.get("fats", 0),
+                "target_carbs": meal_target.get("carbs", 0),
                 "actual_calories": meal_totals["calories"],
                 "actual_proteins": meal_totals["proteins"],
                 "actual_fats": meal_totals["fats"],
                 "actual_carbs": meal_totals["carbs"]
             })
-            
-            # Обновляем счетчик использования блюд
-            for recipe in selected_recipes:
-                key = (recipe["uuid"], meal_type)
-                dish_usage[key] = dish_usage.get(key, 0) + 1
-            
-            # Post-оптимизация дня: проверяем отклонения
-            cls._optimize_day_macros(
-                day_plan,
-                target_calories,
-                target_proteins,
-                target_fats,
-                target_carbs
-            )
-            
-            plan_days.append(day_plan)
         
-        return {
-            "days": plan_days
+        day_plan["meals"] = formatted_meals
+        
+        return day_plan
+    
+    @classmethod
+    def _build_day_plan(
+        cls,
+        day_idx: int,
+        recipes_dict: List[Dict[str, Any]],
+        target_nutrition: Dict[str, float],
+        days_count: int
+    ) -> Dict[str, Any]:
+        """
+        Построить план одного дня
+        
+        Алгоритм:
+        1. Создать обязательные приёмы пищи (breakfast, lunch, dinner)
+        2. Подобрать ОСНОВНЫЕ блюда (MAIN)
+        3. Добавить SIDE (салаты/гарниры) если нужно
+        4. Посчитать текущие итоги дня
+        5. Решить, нужны ли доп. приёмы пищи (snack)
+        6. Подобрать snack-приёмы
+        7. Финальная коррекция порций
+        """
+        day_plan = {
+            "day": day_idx + 1,
+            "meals": [],
+            "target_nutrition": target_nutrition.copy(),
+            "actual_nutrition": {"calories": 0.0, "proteins": 0.0, "fats": 0.0, "carbs": 0.0}
         }
+        
+        # Шаг 1: Создаём обязательные приёмы пищи
+        # Breakfast
+        breakfast_meals = cls._build_meal_slot(
+            meal_type="breakfast",
+            recipes_dict=recipes_dict,
+            slot_target=cls._calculate_slot_target(target_nutrition, "breakfast"),
+            day_idx=day_idx,
+            days_count=days_count
+        )
+        
+        # Lunch
+        lunch_meals = cls._build_meal_slot(
+            meal_type="lunch",
+            recipes_dict=recipes_dict,
+            slot_target=cls._calculate_slot_target(target_nutrition, "lunch"),
+            day_idx=day_idx,
+            days_count=days_count
+        )
+        
+        # Dinner
+        dinner_meals = cls._build_meal_slot(
+            meal_type="dinner",
+            recipes_dict=recipes_dict,
+            slot_target=cls._calculate_slot_target(target_nutrition, "dinner"),
+            day_idx=day_idx,
+            days_count=days_count
+        )
+        
+        # Добавляем обязательные приёмы в план дня
+        if breakfast_meals:
+            day_plan["meals"].append({
+                "meal_type": "breakfast",
+                "recipes": breakfast_meals,
+                "role": cls.ROLE_MAIN
+            })
+        
+        if lunch_meals:
+            day_plan["meals"].append({
+                "meal_type": "lunch",
+                "recipes": lunch_meals,
+                "role": cls.ROLE_MAIN
+            })
+        
+        if dinner_meals:
+            day_plan["meals"].append({
+                "meal_type": "dinner",
+                "recipes": dinner_meals,
+                "role": cls.ROLE_MAIN
+            })
+        
+        # Шаг 2-3: Добавляем SIDE к lunch и dinner если нужно
+        # (уже учтено в _build_meal_slot)
+        
+        # Шаг 4: Посчитываем текущие итоги дня
+        current_totals = cls._calculate_day_totals(day_plan["meals"])
+        
+        # Шаг 5: Решаем, нужны ли доп. приёмы пищи (snack)
+        remaining_calories = target_nutrition["calories"] - current_totals["calories"]
+        
+        # Определяем количество snack-приёмов
+        snack_count = cls._determine_snack_count(remaining_calories, len(day_plan["meals"]))
+        
+        # Шаг 6: Подбираем snack-приёмы
+        if snack_count > 0:
+            snack_target_per_meal = {
+                "calories": remaining_calories / snack_count,
+                "proteins": (target_nutrition["proteins"] - current_totals["proteins"]) / snack_count,
+                "fats": (target_nutrition["fats"] - current_totals["fats"]) / snack_count,
+                "carbs": (target_nutrition["carbs"] - current_totals["carbs"]) / snack_count
+            }
+            
+            for snack_idx in range(snack_count):
+                snack_meals = cls._build_meal_slot(
+                    meal_type="snack",
+                    recipes_dict=recipes_dict,
+                    slot_target=snack_target_per_meal,
+                    day_idx=day_idx,
+                    days_count=days_count,
+                    is_snack=True
+                )
+                
+                if snack_meals:
+                    day_plan["meals"].append({
+                        "meal_type": f"snack{snack_idx + 1}",
+                        "recipes": snack_meals,
+                        "role": cls.ROLE_FILLER
+                    })
+        
+        # Шаг 7: Финальная коррекция порций для всего дня
+        cls._final_day_correction(day_plan, target_nutrition)
+        
+        # Пересчитываем итоговые КБЖУ дня
+        day_plan["actual_nutrition"] = cls._calculate_day_totals(day_plan["meals"])
+        
+        # Форматируем выходные данные
+        formatted_meals = []
+        snack_count_final = len([m for m in day_plan["meals"] if m.get("meal_type", "").startswith("snack")])
+        
+        for meal in day_plan["meals"]:
+            meal_totals = cls._calculate_meal_totals(meal["recipes"])
+            meal_target = cls._get_meal_target(meal["meal_type"], target_nutrition, snack_count_final)
+            formatted_meals.append({
+                "meal_type": meal["meal_type"],
+                "recipes": meal["recipes"],
+                "target_calories": meal_target.get("calories", 0),
+                "target_proteins": meal_target.get("proteins", 0),
+                "target_fats": meal_target.get("fats", 0),
+                "target_carbs": meal_target.get("carbs", 0),
+                "actual_calories": meal_totals["calories"],
+                "actual_proteins": meal_totals["proteins"],
+                "actual_fats": meal_totals["fats"],
+                "actual_carbs": meal_totals["carbs"]
+            })
+        
+        day_plan["meals"] = formatted_meals
+        
+        return day_plan
+    
+    @classmethod
+    def _get_meal_target(cls, meal_type: str, target_nutrition: Dict[str, float], snack_count: int) -> Dict[str, float]:
+        """Получить целевые КБЖУ для приёма пищи"""
+        if meal_type in ["breakfast", "lunch", "dinner"]:
+            return cls._calculate_slot_target(target_nutrition, meal_type)
+        elif meal_type.startswith("snack"):
+            # Равномерно распределяем остаток на все snack-приёмы
+            remaining = {
+                "calories": target_nutrition["calories"] * 0.10,  # Примерно 10% на snack
+                "proteins": target_nutrition["proteins"] * 0.10,
+                "fats": target_nutrition["fats"] * 0.10,
+                "carbs": target_nutrition["carbs"] * 0.10
+            }
+            if snack_count > 0:
+                return {
+                    "calories": remaining["calories"] / snack_count,
+                    "proteins": remaining["proteins"] / snack_count,
+                    "fats": remaining["fats"] / snack_count,
+                    "carbs": remaining["carbs"] / snack_count
+                }
+        return {"calories": 0, "proteins": 0, "fats": 0, "carbs": 0}
+    
+    @classmethod
+    def _determine_snack_count(
+        cls,
+        remaining_calories: float,
+        remaining_proteins: float,
+        current_meals_count: int
+    ) -> int:
+        """
+        Определить количество snack-приёмов пищи
+        
+        Правила:
+        - Добавляем snack если remaining_calories > 250 ИЛИ remaining_proteins > 20
+        - < 150 ккал остаток И remaining_proteins < 10 → не добавляем
+        - 150-350 ккал ИЛИ remaining_proteins 10-20 → 1 snack
+        - 350-650 ккал ИЛИ remaining_proteins 20-40 → 2 snack
+        - > 650 ккал ИЛИ remaining_proteins > 40 → 3 snack (но total_meals ≤ 6)
+        """
+        # Если дефицит по белкам значительный - добавляем snack
+        if remaining_proteins > 20:
+            if remaining_proteins > 40:
+                snack_count = 3
+            elif remaining_proteins > 20:
+                snack_count = 2
+            else:
+                snack_count = 1
+        # Если дефицит по калориям
+        elif remaining_calories > 250:
+            if remaining_calories < 350:
+                snack_count = 1
+            elif remaining_calories < 650:
+                snack_count = 2
+            else:
+                snack_count = 3
+        # Если небольшой дефицит
+        elif remaining_calories > 150 or remaining_proteins > 10:
+            snack_count = 1
+        else:
+            snack_count = 0
+        
+        # Максимум 6 приёмов пищи в день
+        max_snacks = 6 - current_meals_count
+        return min(snack_count, max_snacks)
+    
+    @classmethod
+    def _build_meal_slot(
+        cls,
+        meal_type: str,
+        recipes_dict: List[Dict[str, Any]],
+        slot_target: Dict[str, float],
+        day_idx: int,
+        days_count: int,
+        is_snack: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Построить один приём пищи
+        
+        Логика:
+        1. Фильтруем рецепты по допустимым категориям
+        2. Подбираем основное блюдо (MAIN)
+        3. Опционально добавляем SIDE (салат/гарнир) если калорий не хватает
+        4. Оптимизируем порции
+        """
+        # Фильтруем рецепты по допустимым категориям
+        allowed_recipes = cls._filter_by_allowed_category(recipes_dict, meal_type)
+        
+        if not allowed_recipes:
+            logger.warning(f"Нет доступных рецептов для {meal_type} после фильтрации")
+            return []
+        
+        # Подбираем основное блюдо
+        main_dish = cls._pick_main_dish(allowed_recipes, meal_type, slot_target)
+        
+        if not main_dish:
+            logger.warning(f"Не удалось подобрать основное блюдо для {meal_type}")
+            return []
+        
+        meals = [main_dish]
+        
+        # Проверяем, нужно ли добавить SIDE (салат/гарнир)
+        current_totals = cls._calculate_totals(meals)
+        
+        if current_totals["calories"] < slot_target["calories"] * 0.9:
+            # Пробуем добавить салат или гарнир
+            side_dish = cls._pick_side_dish(allowed_recipes, meal_type, slot_target, meals)
+            if side_dish:
+                meals.append(side_dish)
+        
+        # Оптимизируем порции
+        optimized_meals = cls._optimize_slot(meals, slot_target)
+        
+        return optimized_meals
+    
+    @classmethod
+    def _pick_main_dish(
+        cls,
+        allowed_recipes: List[Dict[str, Any]],
+        meal_type: str,
+        slot_target: Dict[str, float]
+    ) -> Optional[Dict[str, Any]]:
+        """Подобрать основное блюдо (MAIN) с учётом категории"""
+        # Для breakfast - ищем breakfast-тип
+        if meal_type == "breakfast":
+            main_candidates = [
+                r for r in allowed_recipes
+                if r.get("type") == "breakfast"
+                and (not r.get("category") or r.get("category", "").lower() in ["завтрак", "breakfast"])
+            ]
+        # Для lunch - ищем main-тип, но категория должна быть "обед" или "ужин" (не только "ужин")
+        elif meal_type == "lunch":
+            main_candidates = [
+                r for r in allowed_recipes
+                if r.get("type") == "main"
+                and (not r.get("category") or r.get("category", "").lower() in ["обед", "lunch", "ужин", "dinner"])
+            ]
+        # Для dinner - ищем main-тип, но категория должна быть "ужин" (не "обед")
+        elif meal_type == "dinner":
+            main_candidates = [
+                r for r in allowed_recipes
+                if r.get("type") == "main"
+                and (not r.get("category") or r.get("category", "").lower() in ["ужин", "dinner"])
+            ]
+        # Для snack - любой подходящий тип
+        else:
+            main_candidates = allowed_recipes.copy()
+        
+        if not main_candidates:
+            return None
+        
+        # Выбираем блюдо, наиболее близкое к целевым КБЖУ
+        # Приоритет белкам для snack
+        best_dish = None
+        best_score = float('inf')
+        
+        for dish in main_candidates:
+            # Оцениваем близость к целевым КБЖУ
+            score = cls._evaluate_dish_fit(dish, slot_target)
+            # Для snack приоритет белковым блюдам
+            if meal_type == "snack" and dish.get("proteins_per_portion", 0) > 15:
+                score *= 0.8  # Снижаем score для белковых блюд
+            if score < best_score:
+                best_score = score
+                best_dish = dish
+        
+        if best_dish:
+            return best_dish.copy()
+        
+        return None
+    
+    @classmethod
+    def _pick_side_dish(
+        cls,
+        allowed_recipes: List[Dict[str, Any]],
+        meal_type: str,
+        slot_target: Dict[str, float],
+        existing_meals: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """Подобрать дополнительное блюдо (SIDE) - салат или гарнир"""
+        # Исключаем уже использованные блюда
+        used_uuids = {m.get("uuid") for m in existing_meals}
+        available = [r for r in allowed_recipes if r.get("uuid") not in used_uuids]
+        
+        # Ищем салаты
+        salad_candidates = [r for r in available if r.get("type") == "salad"]
+        
+        if not salad_candidates:
+            return None
+        
+        # Выбираем салат, который лучше всего дополнит существующие блюда
+        current_totals = cls._calculate_totals(existing_meals)
+        remaining_target = {
+            "calories": max(0, slot_target["calories"] - current_totals["calories"]),
+            "proteins": max(0, slot_target["proteins"] - current_totals["proteins"]),
+            "fats": max(0, slot_target["fats"] - current_totals["fats"]),
+            "carbs": max(0, slot_target["carbs"] - current_totals["carbs"])
+        }
+        
+        best_side = None
+        best_score = float('inf')
+        
+        for side in salad_candidates:
+            score = cls._evaluate_dish_fit(side, remaining_target)
+            if score < best_score:
+                best_score = score
+                best_side = side
+        
+        if best_side:
+            return best_side.copy()
+        
+        return None
+    
+    @classmethod
+    def _evaluate_dish_fit(cls, dish: Dict[str, Any], target: Dict[str, float]) -> float:
+        """Оценить, насколько блюдо подходит к целевым КБЖУ"""
+        cal_diff = abs((dish.get("calories_per_portion", 0) or 0) - target["calories"]) * 1.0
+        prot_diff = abs((dish.get("proteins_per_portion", 0) or 0) - target["proteins"]) * 1.5
+        fat_diff = abs((dish.get("fats_per_portion", 0) or 0) - target["fats"]) * 1.2
+        carb_diff = abs((dish.get("carbs_per_portion", 0) or 0) - target["carbs"]) * 1.0
+        
+        return cal_diff + prot_diff + fat_diff + carb_diff
+    
+    @classmethod
+    def _final_day_correction(cls, day_plan: Dict[str, Any], target_nutrition: Dict[str, float]):
+        """Финальная коррекция порций для всего дня"""
+        current_totals = cls._calculate_day_totals(day_plan["meals"])
+        
+        # Если калорий больше чем нужно - уменьшаем порции fillers
+        if current_totals["calories"] > target_nutrition["calories"] * 1.05:
+            for meal in day_plan["meals"]:
+                if meal.get("role") == cls.ROLE_FILLER:
+                    for recipe in meal["recipes"]:
+                        if recipe.get("portions", 1) > 1:
+                            recipe["portions"] -= 1
+                            # Пересчитываем и проверяем
+                            new_totals = cls._calculate_day_totals(day_plan["meals"])
+                            if new_totals["calories"] <= target_nutrition["calories"] * 1.05:
+                                break
+        
+        # Если калорий меньше чем нужно - увеличиваем порции fillers или добавляем десерт
+        elif current_totals["calories"] < target_nutrition["calories"] * 0.95:
+            for meal in day_plan["meals"]:
+                if meal.get("role") == cls.ROLE_FILLER:
+                    for recipe in meal["recipes"]:
+                        if recipe.get("portions", 1) < 5:
+                            recipe["portions"] += 1
+                            # Пересчитываем и проверяем
+                            new_totals = cls._calculate_day_totals(day_plan["meals"])
+                            if new_totals["calories"] >= target_nutrition["calories"] * 0.95:
+                                break
     
     @classmethod
     async def _get_available_recipes(
@@ -199,7 +722,7 @@ class MealPlanService:
         system_recipes = await RecipeDAO.find_all(user_id=None, actual=True)
         
         # Получаем пользовательские рецепты
-        user_recipes = await RecipeDAO.find_all(user_uuid=str(user_id), actual=True)
+        user_recipes = await RecipeDAO.find_all(user_id=user_id, actual=True)
         
         all_recipes = list(system_recipes) + list(user_recipes)
         
@@ -214,426 +737,448 @@ class MealPlanService:
         return all_recipes
     
     @classmethod
-    def _categorize_recipes(cls, recipes: List[Recipe]) -> Dict[str, List[Dict]]:
-        """Разделить рецепты по категориям"""
-        categorized = {
-            "breakfast": [],
-            "lunch": [],
-            "dinner": [],
-            "snack": [],
-            "soup": [],
-            "other": []
+    def _map_category_to_type(cls, category: str) -> str:
+        """Маппинг категории на тип рецепта"""
+        if not category:
+            return "main"  # По умолчанию
+        
+        category_lower = category.lower()
+        
+        # Маппинг категорий на типы
+        category_mapping = {
+            "завтрак": "breakfast",
+            "breakfast": "breakfast",
+            "обед": "main",
+            "lunch": "main",
+            "ужин": "main",
+            "dinner": "main",
+            "суп": "main",
+            "soup": "main",
+            "салат": "salad",
+            "salad": "salad",
+            "десерт": "dessert",
+            "dessert": "dessert",
+            "перекус": "snack",
+            "snack": "snack"
         }
         
+        return category_mapping.get(category_lower, "main")
+    
+    @classmethod
+    def _recipes_to_dict(cls, recipes: List[Recipe]) -> List[Dict[str, Any]]:
+        """Преобразовать рецепты в словари"""
+        result = []
         for recipe in recipes:
-            recipe_dict = {
-                "uuid": str(recipe.uuid),
-                "name": recipe.name,
-                "category": recipe.category or "other",
-                "calories_per_portion": recipe.calories_per_portion or 0,
-                "proteins_per_portion": recipe.proteins_per_portion or 0,
-                "fats_per_portion": recipe.fats_per_portion or 0,
-                "carbs_per_portion": recipe.carbs_per_portion or 0,
-                "portions_count": recipe.portions_count or 1
-            }
+            # Определяем тип рецепта
+            recipe_type = (recipe.type or "").lower().strip()
             
-            category = (recipe.category or "other").lower()
-            if category in categorized:
-                categorized[category].append(recipe_dict)
-            else:
-                categorized["other"].append(recipe_dict)
-        
-        return categorized
+            # Если type пустой или не в списке разрешённых, используем category
+            valid_types = ["breakfast", "main", "salad", "snack", "dessert"]
+            if not recipe_type or recipe_type not in valid_types:
+                recipe_type = cls._map_category_to_type(recipe.category or "")
+            
+            result.append({
+                "uuid": str(recipe.uuid),
+                "name": recipe.name or "",
+                "type": recipe_type,
+                "category": recipe.category or "",
+                "calories_per_portion": recipe.calories_per_portion or 0.0,
+                "proteins_per_portion": recipe.proteins_per_portion or 0.0,
+                "fats_per_portion": recipe.fats_per_portion or 0.0,
+                "carbs_per_portion": recipe.carbs_per_portion or 0.0,
+                "portions": 1  # Начальное количество порций
+            })
+        return result
     
     @classmethod
-    def _determine_meal_types(cls, meals_per_day: int) -> List[str]:
-        """Определить типы приемов пищи на основе их количества"""
-        if meals_per_day == 3:
-            return ["breakfast", "lunch", "dinner"]
-        elif meals_per_day == 4:
-            return ["breakfast", "lunch", "dinner", "snack"]
-        elif meals_per_day == 5:
-            return ["breakfast", "snack", "lunch", "snack", "dinner"]
-        else:
-            # Для большего количества приемов пищи
-            result = ["breakfast"]
-            for i in range(meals_per_day - 2):
-                result.append("snack")
-            result.append("dinner")
-            return result
-    
-    @classmethod
-    def _get_meal_candidates(
+    def _filter_by_allowed_category(
         cls,
-        recipes_by_category: Dict[str, List[Dict]],
-        meal_type: str,
-        allowed_recipe_uuids: Optional[List[str]]
-    ) -> List[Dict]:
-        """Получить пул кандидатов для приема пищи"""
-        candidates = []
+        recipes: List[Dict[str, Any]],
+        meal_type: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Фильтровать рецепты по допустимым категориям для приёма пищи
         
-        # Для завтрака берем блюда категории "breakfast"
-        if meal_type == "breakfast":
-            candidates.extend(recipes_by_category.get("breakfast", []))
+        Жёсткая валидация - проверяем И type И category
+        """
+        allowed_types = cls.MEAL_TYPE_ALLOWED.get(meal_type, [])
+        allowed_categories = cls.MEAL_CATEGORY_ALLOWED.get(meal_type, [])
         
-        # Для обеда берем супы и блюда категории "lunch"
-        elif meal_type == "lunch":
-            candidates.extend(recipes_by_category.get("soup", []))
-            candidates.extend(recipes_by_category.get("lunch", []))
+        if not allowed_types:
+            logger.warning(f"Нет разрешённых типов для {meal_type}")
+            return []
         
-        # Для ужина берем блюда категории "dinner"
-        elif meal_type == "dinner":
-            candidates.extend(recipes_by_category.get("dinner", []))
+        filtered = []
+        for recipe in recipes:
+            recipe_type = recipe.get("type", "").lower().strip()
+            recipe_category = (recipe.get("category", "") or "").lower().strip()
+            
+            # Проверяем type
+            type_match = recipe_type in allowed_types
+            
+            # Проверяем category (если указан)
+            category_match = True
+            if recipe_category:
+                # Для lunch разрешаем и "обед" и "ужин"
+                if meal_type == "lunch":
+                    category_match = recipe_category in allowed_categories
+                # Для dinner - только "ужин", не "обед"
+                elif meal_type == "dinner":
+                    category_match = recipe_category in allowed_categories and recipe_category not in ["обед", "lunch"]
+                # Для breakfast - только "завтрак"
+                elif meal_type == "breakfast":
+                    category_match = recipe_category in allowed_categories and recipe_category not in ["обед", "lunch", "ужин", "dinner"]
+                else:
+                    category_match = recipe_category in allowed_categories
+            
+            if type_match and category_match:
+                filtered.append(recipe)
         
-        # Для перекусов берем легкие блюда
-        elif meal_type == "snack":
-            candidates.extend(recipes_by_category.get("snack", []))
+        if not filtered:
+            logger.warning(
+                f"Нет рецептов с подходящими типами/категориями для {meal_type}. "
+                f"Разрешённые типы: {allowed_types}, категории: {allowed_categories}"
+            )
         
-        # Если нет специфичных кандидатов, берем из "other"
-        if not candidates:
-            candidates.extend(recipes_by_category.get("other", []))
-        
-        # Убираем дубликаты по UUID
-        seen = set()
-        unique_candidates = []
-        for candidate in candidates:
-            if candidate["uuid"] not in seen:
-                seen.add(candidate["uuid"])
-                unique_candidates.append(candidate)
-        
-        return unique_candidates
+        return filtered
     
     @classmethod
-    def _calculate_meal_targets(
+    def _calculate_slot_target(
         cls,
-        meal_type: str,
-        target_calories: float,
-        target_proteins: float,
-        target_fats: float,
-        target_carbs: float,
-        meals_per_day: int
+        target_nutrition: Dict[str, float],
+        meal_type: str
     ) -> Dict[str, float]:
-        """Рассчитать целевые КБЖУ для приема пищи"""
-        if meal_type in cls.MEAL_DISTRIBUTION:
-            distribution = cls.MEAL_DISTRIBUTION[meal_type]
-        else:
-            # Для перекусов распределяем равномерно оставшиеся проценты
-            distribution = (1.0 - sum(cls.MEAL_DISTRIBUTION.values())) / meals_per_day
+        """Рассчитать целевые КБЖУ для слота"""
+        share = cls.MEAL_DISTRIBUTION.get(meal_type, 0.0)
         
         return {
-            "calories": target_calories * distribution,
-            "proteins": target_proteins * distribution,
-            "fats": target_fats * distribution,
-            "carbs": target_carbs * distribution
+            "calories": target_nutrition["calories"] * share,
+            "proteins": target_nutrition["proteins"] * share,
+            "fats": target_nutrition["fats"] * share,
+            "carbs": target_nutrition["carbs"] * share
         }
     
     @classmethod
-    def _select_recipes_for_meal(
+    def _optimize_slot(
         cls,
-        candidates: List[Dict],
-        target_meal: Dict[str, float],
-        dish_usage: Dict[Tuple[str, str], int],
-        meal_type: str,
-        day: int,
-        max_repeats_per_week: int,
-        day_dishes: set,
-        include_soup_in_lunch: bool = True
-    ) -> List[Dict]:
+        meals: List[Dict[str, Any]],
+        slot_target: Dict[str, float]
+    ) -> List[Dict[str, Any]]:
         """
-        Подобрать блюда для приема пищи
+        Оптимизировать один приём пищи с использованием macro-penalty
         
-        Использует улучшенный алгоритм подбора с учетом:
-        - Целевых КБЖУ (допуск ±15%)
-        - Ограничений на повторы блюд в неделю
-        - Запрета на повторение блюда в разные приемы одного дня (если есть альтернативы)
-        - Weighted random для разнообразия
-        - Подбор супа + второго для обеда
+        Алгоритм:
+        1. Начинаем с portions = 1 для всех блюд
+        2. Итеративно оптимизируем порции, минимизируя macro-penalty
+        3. Проверяем валидность слота (90-110% калории, 85-115% БЖУ)
         """
-        # Фильтруем кандидатов по ограничениям на повторы в неделю
-        filtered_candidates = []
-        for candidate in candidates:
-            key = (candidate["uuid"], meal_type)
-            current_week_count = dish_usage.get(key, 0)
-            if current_week_count < max_repeats_per_week:
-                filtered_candidates.append(candidate)
+        if not meals:
+            return []
         
-        if not filtered_candidates:
-            # Если все блюда исчерпаны, используем всех кандидатов
-            filtered_candidates = candidates
+        # Инициализируем portions = 1
+        for meal in meals:
+            meal["portions"] = 1
         
-        # Исключаем блюда, уже использованные в этот день (если есть альтернативы)
-        available_candidates = [
-            c for c in filtered_candidates 
-            if c["uuid"] not in day_dishes
-        ]
+        # Оптимизируем порции итеративно
+        max_iterations = 50
+        best_config = None
+        best_score = float('inf')
         
-        # Если после фильтрации не осталось альтернатив, используем все отфильтрованные
-        if not available_candidates and len(filtered_candidates) > 0:
-            available_candidates = filtered_candidates
+        for iteration in range(max_iterations):
+            totals = cls._calculate_totals(meals)
+            score = cls._calculate_macro_penalty(totals, slot_target)
+            
+            if score < best_score:
+                best_score = score
+                best_config = [(m["uuid"], m["portions"]) for m in meals]
+            
+            # Если слот валиден, можем остановиться
+            if cls._is_slot_valid(totals, slot_target):
+                break
+            
+            # Пытаемся улучшить, изменяя порции
+            improved = False
+            
+            # Приоритет 1: Балансируем макросы
+            if not cls._is_slot_valid(totals, slot_target):
+                improved = cls._balance_macros_iterative(meals, slot_target)
+            
+            # Приоритет 2: Корректируем калории
+            if not improved:
+                if totals["calories"] < slot_target["calories"] * 0.90:
+                    best_meal = cls._find_best_meal_to_increase(meals, slot_target, totals)
+                    if best_meal and best_meal["portions"] < 5:
+                        best_meal["portions"] += 1
+                        improved = True
+                
+                elif totals["calories"] > slot_target["calories"] * 1.10:
+                    best_meal = cls._find_best_meal_to_decrease(meals, slot_target, totals)
+                    if best_meal and best_meal["portions"] > 1:
+                        best_meal["portions"] -= 1
+                        improved = True
+            
+            if not improved:
+                break
         
-        if not available_candidates:
-            available_candidates = candidates
+        # Восстанавливаем лучшую конфигурацию, если нашли
+        if best_config:
+            for meal, (uuid, portions) in zip(meals, best_config):
+                if meal["uuid"] == uuid:
+                    meal["portions"] = portions
         
-        tolerance = 0.15  # Допуск 15%
+        # Формируем финальный список с правильной структурой
+        result = []
+        for meal in meals:
+            result.append({
+                "uuid": meal["uuid"],
+                "name": meal["name"],
+                "category": meal.get("category", ""),
+                "calories": meal["calories_per_portion"] * meal["portions"],
+                "proteins": meal["proteins_per_portion"] * meal["portions"],
+                "fats": meal["fats_per_portion"] * meal["portions"],
+                "carbs": meal["carbs_per_portion"] * meal["portions"],
+                "portions": meal["portions"]
+            })
         
-        # Для обеда: подбираем суп + второе (или только второе, в зависимости от параметра)
-        if meal_type == "lunch":
-            return cls._select_lunch_dishes(
-                available_candidates,
-                target_meal,
-                tolerance,
-                include_soup_in_lunch
-            )
+        return result
+    
+    @classmethod
+    def _find_best_meal_to_increase(
+        cls,
+        meals: List[Dict[str, Any]],
+        slot_target: Dict[str, float],
+        current_totals: Dict[str, float]
+    ) -> Optional[Dict[str, Any]]:
+        """Найти лучшее блюдо для увеличения порции"""
+        best_meal = None
+        best_delta_score = float('inf')
+        current_score = cls._calculate_macro_penalty(current_totals, slot_target)
         
-        # Для остальных приемов пищи: подбираем 1-2 блюда
-        return cls._select_regular_meal_dishes(
-            available_candidates,
-            target_meal,
-            tolerance
+        for meal in meals:
+            if meal["portions"] < 5:
+                meal["portions"] += 1
+                new_totals = cls._calculate_totals(meals)
+                new_score = cls._calculate_macro_penalty(new_totals, slot_target)
+                delta_score = new_score - current_score
+                
+                if delta_score < best_delta_score:
+                    best_delta_score = delta_score
+                    best_meal = meal
+                
+                meal["portions"] -= 1
+        
+        return best_meal
+    
+    @classmethod
+    def _find_best_meal_to_decrease(
+        cls,
+        meals: List[Dict[str, Any]],
+        slot_target: Dict[str, float],
+        current_totals: Dict[str, float]
+    ) -> Optional[Dict[str, Any]]:
+        """Найти лучшее блюдо для уменьшения порции"""
+        best_meal = None
+        best_delta_score = float('inf')
+        current_score = cls._calculate_macro_penalty(current_totals, slot_target)
+        
+        for meal in meals:
+            if meal["portions"] > 1:
+                meal["portions"] -= 1
+                new_totals = cls._calculate_totals(meals)
+                new_score = cls._calculate_macro_penalty(new_totals, slot_target)
+                delta_score = new_score - current_score
+                
+                if delta_score < best_delta_score:
+                    best_delta_score = delta_score
+                    best_meal = meal
+                
+                meal["portions"] += 1
+        
+        return best_meal
+    
+    @classmethod
+    def _calculate_macro_penalty(
+        cls,
+        actual: Dict[str, float],
+        target: Dict[str, float]
+    ) -> float:
+        """
+        Рассчитать macro-penalty score
+        
+        score = |cal_target - cal_actual| * 1.0 +
+                |prot_target - prot_actual| * 1.5 +
+                |fat_target - fat_actual| * 1.2 +
+                |carb_target - carb_actual| * 1.0
+        """
+        cal_diff = abs(target["calories"] - actual["calories"]) * 1.0
+        prot_diff = abs(target["proteins"] - actual["proteins"]) * 1.5
+        fat_diff = abs(target["fats"] - actual["fats"]) * 1.2
+        carb_diff = abs(target["carbs"] - actual["carbs"]) * 1.0
+        
+        return cal_diff + prot_diff + fat_diff + carb_diff
+    
+    @classmethod
+    def _is_slot_valid(
+        cls,
+        actual: Dict[str, float],
+        target: Dict[str, float]
+    ) -> bool:
+        """
+        Проверить валидность слота
+        
+        Калории: 90-110% (более строго для breakfast)
+        БЖУ: 85-115%
+        """
+        if target["calories"] == 0:
+            return True
+        
+        cal_ratio = actual["calories"] / target["calories"]
+        prot_ratio = actual["proteins"] / target["proteins"] if target["proteins"] > 0 else 1.0
+        fat_ratio = actual["fats"] / target["fats"] if target["fats"] > 0 else 1.0
+        carb_ratio = actual["carbs"] / target["carbs"] if target["carbs"] > 0 else 1.0
+        
+        # Для breakfast более строгие ограничения по калориям (95-105%)
+        cal_min = 0.95 if target["calories"] < 700 else 0.90
+        cal_max = 1.05 if target["calories"] < 700 else 1.10
+        
+        return (cal_min <= cal_ratio <= cal_max and
+                0.85 <= prot_ratio <= 1.15 and
+                0.85 <= fat_ratio <= 1.15 and
+                0.85 <= carb_ratio <= 1.15)
+    
+    @classmethod
+    def _balance_macros_iterative(
+        cls,
+        meals: List[Dict[str, Any]],
+        slot_target: Dict[str, float]
+    ) -> bool:
+        """
+        Итеративная балансировка макросов с приоритизацией
+        
+        Приоритет: белки → калории → углеводы → жиры
+        
+        Возвращает True, если было улучшение
+        """
+        totals = cls._calculate_totals(meals)
+        current_score = cls._calculate_macro_penalty(totals, slot_target)
+        
+        # Проверяем отклонения для каждого макро с приоритетом
+        macros_to_balance = []
+        
+        # Приоритет 1: Белки (самый важный)
+        prot_ratio = totals["proteins"] / slot_target["proteins"] if slot_target["proteins"] > 0 else 0
+        if prot_ratio < 0.85 or prot_ratio > 1.15:
+            macros_to_balance.append(("proteins", "proteins_per_portion", prot_ratio < 0.85, 1))
+        
+        # Приоритет 2: Калории
+        cal_ratio = totals["calories"] / slot_target["calories"] if slot_target["calories"] > 0 else 1.0
+        if cal_ratio < 0.90 or cal_ratio > 1.10:
+            macros_to_balance.append(("calories", "calories_per_portion", cal_ratio < 0.90, 2))
+        
+        # Приоритет 3: Углеводы
+        carb_ratio = totals["carbs"] / slot_target["carbs"] if slot_target["carbs"] > 0 else 0
+        if carb_ratio < 0.85 or carb_ratio > 1.15:
+            macros_to_balance.append(("carbs", "carbs_per_portion", carb_ratio < 0.85, 3))
+        
+        # Приоритет 4: Жиры (последний)
+        fat_ratio = totals["fats"] / slot_target["fats"] if slot_target["fats"] > 0 else 0
+        if fat_ratio < 0.85 or fat_ratio > 1.15:
+            macros_to_balance.append(("fats", "fats_per_portion", fat_ratio < 0.85, 4))
+        
+        # Сортируем по приоритету, затем по критичности отклонения
+        macros_to_balance.sort(
+            key=lambda x: (x[3], abs(1.0 - (totals[x[0]] / slot_target[x[0]] if slot_target[x[0]] > 0 else 0))),
+            reverse=False
         )
+        
+        # Балансируем каждый макро по приоритету
+        for macro_name, macro_key, need_increase, priority in macros_to_balance:
+            if need_increase:
+                # Нужно увеличить макро
+                macro_rich = sorted(meals, key=lambda m: m.get(macro_key, 0), reverse=True)
+                for meal in macro_rich:
+                    if meal["portions"] < 5:
+                        meal["portions"] += 1
+                        new_totals = cls._calculate_totals(meals)
+                        new_score = cls._calculate_macro_penalty(new_totals, slot_target)
+                        if new_score < current_score:
+                            return True
+                        meal["portions"] -= 1
+            else:
+                # Нужно уменьшить макро
+                macro_rich = sorted(meals, key=lambda m: m.get(macro_key, 0), reverse=True)
+                for meal in macro_rich:
+                    if meal["portions"] > 1:
+                        meal["portions"] -= 1
+                        new_totals = cls._calculate_totals(meals)
+                        new_score = cls._calculate_macro_penalty(new_totals, slot_target)
+                        if new_score < current_score:
+                            return True
+                        meal["portions"] += 1
+        
+        return False
     
     @classmethod
-    def _select_lunch_dishes(
-        cls,
-        candidates: List[Dict],
-        target_meal: Dict[str, float],
-        tolerance: float,
-        include_soup: bool = True
-    ) -> List[Dict]:
-        """
-        Подобрать блюда для обеда
-        
-        Args:
-            candidates: Список кандидатов блюд
-            target_meal: Целевые КБЖУ для обеда
-            tolerance: Допуск отклонения от цели
-            include_soup: Включать ли суп в обед (True = суп + второе, False = только второе)
-        """
-        # Разделяем кандидатов на супы и вторые блюда
-        soups = [c for c in candidates if (c.get("category", "").lower() == "soup" or 
-                                          "суп" in c.get("name", "").lower())]
-        main_dishes = [c for c in candidates if c not in soups]
-        
-        selected = []
-        current_calories = 0
-        current_proteins = 0
-        current_fats = 0
-        current_carbs = 0
-        
-        # Если нужно включить суп, пытаемся выбрать его
-        if include_soup and soups:
-            soup = cls._weighted_random_select(
-                soups,
-                target_meal["calories"] * 0.4,  # Суп должен быть ~40% от целевых калорий
-                current_calories,
-                target_meal["calories"] * tolerance
-            )
-            if soup:
-                selected.append(soup)
-                current_calories += soup["calories_per_portion"] or 0
-                current_proteins += soup["proteins_per_portion"] or 0
-                current_fats += soup["fats_per_portion"] or 0
-                current_carbs += soup["carbs_per_portion"] or 0
-        
-        # Пытаемся добавить второе блюдо
-        remaining_calories = target_meal["calories"] - current_calories
-        if main_dishes and remaining_calories > target_meal["calories"] * 0.2:  # Минимум 20% должно остаться
-            main_dish = cls._weighted_random_select(
-                main_dishes,
-                remaining_calories if include_soup else target_meal["calories"],  # Если супа нет, берем все калории на второе
-                current_calories,
-                target_meal["calories"] * tolerance
-            )
-            if main_dish:
-                new_total = current_calories + (main_dish["calories_per_portion"] or 0)
-                if new_total <= target_meal["calories"] * (1 + tolerance):
-                    selected.append(main_dish)
-        
-        # Если ничего не выбрано, берем ближайшее блюдо (второе блюдо или любое доступное)
-        if not selected:
-            if main_dishes:
-                selected.append(cls._weighted_random_select(main_dishes, target_meal["calories"], 0, tolerance))
-            elif candidates:
-                selected.append(cls._weighted_random_select(candidates, target_meal["calories"], 0, tolerance))
-        
-        return selected if selected else []
-    
-    @classmethod
-    def _select_regular_meal_dishes(
-        cls,
-        candidates: List[Dict],
-        target_meal: Dict[str, float],
-        tolerance: float
-    ) -> List[Dict]:
-        """Подобрать блюда для обычного приема пищи (не обед)"""
-        selected = []
-        current_calories = 0
-        
-        # Используем weighted random для выбора основного блюда
-        main_dish = cls._weighted_random_select(
-            candidates,
-            target_meal["calories"],
-            current_calories,
-            target_meal["calories"] * tolerance
-        )
-        
-        if main_dish:
-            selected.append(main_dish)
-            current_calories += main_dish["calories_per_portion"] or 0
-            
-            # Если нужно добавить еще блюдо (например, для завтрака можно добавить фрукты)
-            remaining = target_meal["calories"] - current_calories
-            if remaining > target_meal["calories"] * 0.2:  # Если осталось >20%
-                # Ищем легкое дополнительное блюдо
-                remaining_candidates = [c for c in candidates if c["uuid"] != main_dish["uuid"]]
-                additional = cls._weighted_random_select(
-                    remaining_candidates,
-                    remaining,
-                    current_calories,
-                    target_meal["calories"] * tolerance
-                )
-                if additional:
-                    new_total = current_calories + (additional["calories_per_portion"] or 0)
-                    if new_total <= target_meal["calories"] * (1 + tolerance):
-                        selected.append(additional)
-        
-        # Если ничего не выбрано, берем ближайшее блюдо
-        if not selected and candidates:
-            selected.append(cls._weighted_random_select(candidates, target_meal["calories"], 0, tolerance))
-        
-        return selected if selected else []
-    
-    @classmethod
-    def _weighted_random_select(
-        cls,
-        candidates: List[Dict],
-        target_calories: float,
-        current_calories: float,
-        tolerance: float
-    ) -> Optional[Dict]:
-        """
-        Weighted random выбор блюда с учетом близости к целевым калориям
-        
-        Блюда, более близкие к целевым калориям, имеют больший вес при выборе.
-        Но добавляется случайность для разнообразия.
-        """
-        if not candidates:
-            return None
-        
-        # Вычисляем "пригодность" каждого кандидата (score)
-        scores = []
-        for candidate in candidates:
-            candidate_calories = candidate.get("calories_per_portion", 0) or 0
-            if candidate_calories == 0:
-                continue
-            
-            # Ожидаемые калории после добавления этого блюда
-            expected_total = current_calories + candidate_calories
-            
-            # Вычисляем отклонение от цели
-            deviation = abs(expected_total - target_calories)
-            
-            # Чем меньше отклонение, тем выше score (используем обратную зависимость)
-            # Добавляем 1 чтобы избежать деления на 0
-            score = 1.0 / (deviation + 1)
-            
-            # Бонус за блюда, которые не превышают цель
-            if expected_total <= target_calories * (1 + tolerance):
-                score *= 1.5
-            
-            scores.append((candidate, score))
-        
-        if not scores:
-            return None
-        
-        # Сортируем по score и берем топ-N кандидатов для случайного выбора
-        sorted_candidates = sorted(scores, key=lambda x: x[1], reverse=True)
-        
-        # Берем топ 30% или минимум 3 кандидата для случайного выбора
-        top_count = max(3, len(sorted_candidates) // 3)
-        top_candidates = sorted_candidates[:top_count]
-        
-        # Weighted random: чем выше score, тем больше вероятность
-        total_score = sum(score for _, score in top_candidates)
-        if total_score == 0:
-            # Если все score = 0, выбираем случайно
-            return random.choice([c for c, _ in top_candidates])
-        
-        # Генерируем случайное число и выбираем кандидата
-        rand = random.uniform(0, total_score)
-        cumulative = 0
-        for candidate, score in top_candidates:
-            cumulative += score
-            if rand <= cumulative:
-                return candidate
-        
-        # Fallback: возвращаем первый кандидат
-        return top_candidates[0][0]
-    
-    @classmethod
-    def _calculate_meal_totals(cls, recipes: List[Dict]) -> Dict[str, float]:
-        """Рассчитать суммарные КБЖУ приема пищи"""
+    def _calculate_totals(cls, meals: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Рассчитать суммарные КБЖУ"""
         totals = {
-            "calories": 0,
-            "proteins": 0,
-            "fats": 0,
-            "carbs": 0
+            "calories": 0.0,
+            "proteins": 0.0,
+            "fats": 0.0,
+            "carbs": 0.0
         }
         
-        for recipe in recipes:
-            totals["calories"] += recipe.get("calories_per_portion", 0)
-            totals["proteins"] += recipe.get("proteins_per_portion", 0)
-            totals["fats"] += recipe.get("fats_per_portion", 0)
-            totals["carbs"] += recipe.get("carbs_per_portion", 0)
+        for meal in meals:
+            # Проверяем, какая структура данных (до или после оптимизации)
+            if "calories" in meal:
+                # После оптимизации - уже посчитано с учётом portions
+                totals["calories"] += meal.get("calories", 0) or 0
+                totals["proteins"] += meal.get("proteins", 0) or 0
+                totals["fats"] += meal.get("fats", 0) or 0
+                totals["carbs"] += meal.get("carbs", 0) or 0
+            else:
+                # До оптимизации - нужно умножить на portions
+                portions = meal.get("portions", 1)
+                totals["calories"] += (meal.get("calories_per_portion", 0) or 0) * portions
+                totals["proteins"] += (meal.get("proteins_per_portion", 0) or 0) * portions
+                totals["fats"] += (meal.get("fats_per_portion", 0) or 0) * portions
+                totals["carbs"] += (meal.get("carbs_per_portion", 0) or 0) * portions
         
         return totals
     
     @classmethod
-    def _optimize_day_macros(
-        cls,
-        day_plan: Dict[str, Any],
-        target_calories: float,
-        target_proteins: float,
-        target_fats: float,
-        target_carbs: float
-    ) -> None:
-        """
-        Post-оптимизация дня: если отклонения по КБЖУ слишком большие,
-        пытаемся заменить одно блюдо на альтернативу
+    def _calculate_day_totals(cls, meals: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Рассчитать суммарные КБЖУ за день"""
+        totals = {
+            "calories": 0.0,
+            "proteins": 0.0,
+            "fats": 0.0,
+            "carbs": 0.0
+        }
         
-        Это soft-оптимизация для улучшения баланса макронутриентов
-        """
-        # Рассчитываем фактические КБЖУ за весь день
-        day_totals = {"calories": 0, "proteins": 0, "fats": 0, "carbs": 0}
-        for meal in day_plan["meals"]:
-            day_totals["calories"] += meal.get("actual_calories", 0)
-            day_totals["proteins"] += meal.get("actual_proteins", 0)
-            day_totals["fats"] += meal.get("actual_fats", 0)
-            day_totals["carbs"] += meal.get("actual_carbs", 0)
+        for meal in meals:
+            meal_totals = cls._calculate_meal_totals(meal.get("recipes", []))
+            totals["calories"] += meal_totals["calories"]
+            totals["proteins"] += meal_totals["proteins"]
+            totals["fats"] += meal_totals["fats"]
+            totals["carbs"] += meal_totals["carbs"]
         
-        # Проверяем отклонения
-        tolerance = 0.15  # 15% допуск
+        return totals
+    
+    @classmethod
+    def _calculate_meal_totals(cls, recipes: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Рассчитать суммарные КБЖУ для одного приёма пищи"""
+        totals = {
+            "calories": 0.0,
+            "proteins": 0.0,
+            "fats": 0.0,
+            "carbs": 0.0
+        }
         
-        calories_deviation = abs(day_totals["calories"] - target_calories) / target_calories
-        proteins_deviation = abs(day_totals["proteins"] - target_proteins) / target_proteins if target_proteins > 0 else 0
-        fats_deviation = abs(day_totals["fats"] - target_fats) / target_fats if target_fats > 0 else 0
-        carbs_deviation = abs(day_totals["carbs"] - target_carbs) / target_carbs if target_carbs > 0 else 0
+        for recipe in recipes:
+            totals["calories"] += recipe.get("calories", 0) or 0
+            totals["proteins"] += recipe.get("proteins", 0) or 0
+            totals["fats"] += recipe.get("fats", 0) or 0
+            totals["carbs"] += recipe.get("carbs", 0) or 0
         
-        # Если отклонения в пределах допуска, оптимизация не нужна
-        max_deviation = max(calories_deviation, proteins_deviation, fats_deviation, carbs_deviation)
-        if max_deviation <= tolerance:
-            return
-        
-        # Логируем отклонения для отладки (можно убрать в продакшене)
-        logger.debug(
-            f"День {day_plan['day']}: отклонения - "
-            f"калории: {calories_deviation:.2%}, "
-            f"белки: {proteins_deviation:.2%}, "
-            f"жиры: {fats_deviation:.2%}, "
-            f"углеводы: {carbs_deviation:.2%}"
-        )
-        
-        # В будущем здесь можно добавить логику замены блюд для улучшения баланса
-        # Например, если слишком много жиров - заменить одно жирное блюдо на менее жирное
-        # Это требует более сложной логики с учетом всех ограничений
-
+        return totals

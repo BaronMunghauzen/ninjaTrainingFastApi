@@ -64,7 +64,8 @@ class UserTrainingDAO(BaseDAO):
                     return []
         async with async_session_maker() as session:
             query = select(cls.model).filter_by(**filters)
-            query = query.order_by(cls.model.training_date.asc())
+            # Сортируем по training_date и created_at по убыванию (самые последние первыми)
+            query = query.order_by(cls.model.training_date.desc(), cls.model.created_at.desc())
             result = await session.execute(query)
             objects = result.scalars().all()
             return objects
@@ -85,7 +86,8 @@ class UserTrainingDAO(BaseDAO):
             count_query = select(sa.func.count(cls.model.id)).filter_by(**filters)
             total_count = await session.scalar(count_query)
             query = select(cls.model).filter_by(**filters)
-            query = query.order_by(cls.model.training_date.asc())
+            # Сортируем по training_date и created_at по убыванию (самые последние первыми)
+            query = query.order_by(cls.model.training_date.desc(), cls.model.created_at.desc())
             query = query.offset((page - 1) * page_size).limit(page_size)
             result = await session.execute(query)
             objects = result.scalars().all()
@@ -156,6 +158,7 @@ class UserTrainingDAO(BaseDAO):
                 "uuid": str(ut.uuid),
                 "status": ut.status.value,
                 "training_date": ut.training_date.isoformat() if ut.training_date else None,
+                "duration": ut.duration,
                 "week": ut.week,
                 "weekday": ut.weekday,
                 "is_rest_day": ut.is_rest_day,
@@ -240,6 +243,7 @@ class UserTrainingDAO(BaseDAO):
                 "uuid": str(ut.uuid),
                 "status": ut.status.value,
                 "training_date": ut.training_date.isoformat() if ut.training_date else None,
+                "duration": ut.duration,
                 "week": ut.week,
                 "weekday": ut.weekday,
                 "is_rest_day": ut.is_rest_day,

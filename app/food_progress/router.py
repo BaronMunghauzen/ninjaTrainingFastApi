@@ -167,15 +167,22 @@ async def delete_target(
 @router.get("/meals/", summary="Получить все приемы пищи")
 async def get_all_meals(
     request_body: RBMeal = Depends(),
-    user_data: User = Depends(get_current_user_user)
-) -> List[dict]:
-    """Получить все приемы пищи пользователя"""
+    user_data: User = Depends(get_current_user_user),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    size: int = Query(20, ge=1, le=100, description="Размер страницы")
+) -> dict:
+    """Получить все приемы пищи пользователя с пагинацией"""
     try:
         filters = request_body.to_dict()
         if 'user_uuid' not in filters:
             filters['user_uuid'] = str(user_data.uuid)
-        meals = await MealDAO.find_all(**filters)
-        return [m.to_dict() for m in meals]
+        
+        result = await MealDAO.find_all_paginated(page=page, size=size, **filters)
+        
+        return {
+            "items": [m.to_dict() for m in result["items"]],
+            "pagination": result["pagination"]
+        }
     except Exception as e:
         logger.error(f"Ошибка при получении приемов пищи: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -216,10 +223,15 @@ async def add_meal(
         daily_totals = await MealDAO.get_daily_totals(user_data.id, meal_date)
         
         # Рассчитываем остатки с учетом нового приема пищи
+        # Используем 0 для None значений
+        proteins_value = meal.proteins or 0
+        fats_value = meal.fats or 0
+        carbs_value = meal.carbs or 0
+        
         total_calories = daily_totals["calories"] + meal.calories
-        total_proteins = daily_totals["proteins"] + meal.proteins
-        total_fats = daily_totals["fats"] + meal.fats
-        total_carbs = daily_totals["carbs"] + meal.carbs
+        total_proteins = daily_totals["proteins"] + proteins_value
+        total_fats = daily_totals["fats"] + fats_value
+        total_carbs = daily_totals["carbs"] + carbs_value
         
         remaining_calories = target.target_calories - total_calories
         remaining_proteins = target.target_proteins - total_proteins
@@ -227,6 +239,10 @@ async def add_meal(
         remaining_carbs = target.target_carbs - total_carbs
         
         values = meal.model_dump()
+        # Убеждаемся, что None значения заменены на 0
+        values['proteins'] = proteins_value
+        values['fats'] = fats_value
+        values['carbs'] = carbs_value
         values['user_id'] = user_data.id
         values['target_calories'] = target.target_calories
         values['target_proteins'] = target.target_proteins

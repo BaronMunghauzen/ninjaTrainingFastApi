@@ -62,6 +62,7 @@ class Meal(Base):
     
     # Основные данные
     meal_datetime: Mapped[datetime] = mapped_column(nullable=False)  # Дата и время приема пищи
+    name: Mapped[Optional[str]] = mapped_column(nullable=True)  # Название приема пищи
     
     # КБЖУ в порции
     calories: Mapped[float] = mapped_column(nullable=False)
@@ -95,6 +96,7 @@ class Meal(Base):
             "actual": self.actual,
             "user_uuid": str(self.user.uuid) if self.user else None,
             "meal_datetime": self.meal_datetime.isoformat() if self.meal_datetime else None,
+            "name": self.name,
             "calories": self.calories,
             "proteins": self.proteins,
             "fats": self.fats,

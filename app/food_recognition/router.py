@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Q
 from typing import Optional, List
 from datetime import date
 from pathlib import Path
-from io import BytesIO
 
 from app.food_recognition.dao import FoodRecognitionDAO
 from app.food_recognition.rb import RBFoodRecognition
@@ -117,19 +116,13 @@ async def recognize_food(
         saved_file_uuid = await FilesDAO.add(**file_data)
         saved_file = await FilesDAO.find_one_or_none(uuid=saved_file_uuid)
         
-        # Создаем временный файл-объект для отправки в сервис
-        temp_file = BytesIO(file_content)
-        
-        # Создаем UploadFile-подобный объект для отправки в сервис
-        file_for_service = UploadFile(
-            filename=file.filename,
-            file=temp_file
-        )
-        # Устанавливаем content_type для корректной отправки
-        file_for_service.content_type = file.content_type or "image/jpeg"
-        
         # Отправляем запрос на распознавание
-        response = await FoodRecognitionService.recognize_food(file_for_service, comment)
+        response = await FoodRecognitionService.recognize_food(
+            file_content=file_content,
+            filename=file.filename or "unknown",
+            content_type=file.content_type or "image/jpeg",
+            comment=comment
+        )
         
         # Парсим ответ
         parsed_data = FoodRecognitionService.parse_response(response)

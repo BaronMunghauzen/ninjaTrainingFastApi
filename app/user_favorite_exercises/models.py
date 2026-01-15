@@ -50,3 +50,23 @@ class UserFavoriteExercise(Base):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

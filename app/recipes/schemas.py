@@ -30,7 +30,7 @@ class SRecipe(BaseModel):
 
 
 class SRecipeAdd(BaseModel):
-    user_uuid: Optional[UUID] = Field(None, description="UUID пользователя (None для системных рецептов)")
+    user_uuid: Optional[UUID] = Field(None, description="UUID пользователя (None для системных рецептов, не передавать для рецепта текущего пользователя)")
     category: Optional[str] = Field(None, description="Категория рецепта")
     type: Optional[str] = Field(None, description="Тип рецепта")
     name: Optional[str] = Field(None, description="Название рецепта")

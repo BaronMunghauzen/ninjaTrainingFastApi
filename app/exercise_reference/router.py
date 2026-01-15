@@ -1,6 +1,6 @@
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from app.exercise_reference.dao import ExerciseReferenceDAO
 from app.exercise_reference.models import ExerciseReference
 from app.exercise_reference.rb import RBExerciseReference
@@ -9,8 +9,6 @@ from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.files.dao import FilesDAO
 from app.files.service import FileService
 from app.users.dao import UsersDAO
-from app.user_favorite_exercises.dao import UserFavoriteExerciseDAO
-from app.users.models import User
 
 router = APIRouter(prefix='/exercise_reference', tags=['Справочник упражнений'])
 
@@ -23,39 +21,27 @@ async def get_all_exercise_references(
 ) -> SPaginationResponse:
     filters = request_body.to_dict()
     
-    # Обрабатываем фильтр is_favorite (если есть)
-    is_favorite_filter = filters.pop('is_favorite', None)
+    # Если пагинация не нужна (page=0 или size=0), используем старый метод
+    if page == 0 or size == 0:
+        exercises = await ExerciseReferenceDAO.find_all(**filters)
+        items = [e.to_dict() for e in exercises]
+        return SPaginationResponse(
+            items=items,
+            total=len(items),
+            page=0,
+            size=0,
+            pages=1
+        )
     
-    # Используем метод с пагинацией и сортировкой на уровне БД
+    # Используем новый метод с пагинацией
     result = await ExerciseReferenceDAO.find_all_paginated(
         page=page,
         size=size,
-        user_id=user_data.id,  # Передаем user_id для сортировки по избранным на уровне БД
         **filters
     )
     
-    # Применяем фильтр по избранному, если указан
-    if is_favorite_filter is not None:
-        favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
-        if is_favorite_filter:
-            result["items"] = [e for e in result["items"] if e.id in favorite_exercise_ids]
-        else:
-            result["items"] = [e for e in result["items"] if e.id not in favorite_exercise_ids]
-        # Пересчитываем total после фильтрации
-        result["total"] = len(result["items"])
-        result["pages"] = (result["total"] + result["size"] - 1) // result["size"] if result["total"] > 0 else 0
-    
-    # Преобразуем объекты в словари и добавляем is_favorite и popularity
-    exercise_ids = [e.id for e in result["items"]]
-    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
-    favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
-    
-    items = []
-    for e in result["items"]:
-        item = e.to_dict()
-        item['is_favorite'] = e.id in favorite_exercise_ids
-        item['popularity'] = popularity_dict.get(e.id, 0)
-        items.append(item)
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
     
     return SPaginationResponse(
         items=items,
@@ -86,28 +72,17 @@ async def search_exercise_reference_by_caption(
     if equipment_names and equipment_names.strip():
         equipment_names_list = [en.strip() for en in equipment_names.split(',') if en.strip()]
     
-    # Используем метод с пагинацией и сортировкой на уровне БД
     result = await ExerciseReferenceDAO.find_by_caption_paginated(
-        caption=caption or "",
-        page=page,
+        caption=caption or "", 
+        page=page, 
         size=size,
-        user_id=user_data.id,  # Передаем user_id для сортировки по избранным на уровне БД
         muscle_groups_filter=muscle_groups_list,
         equipment_names_filter=equipment_names_list,
         **filters
     )
     
-    # Преобразуем объекты в словари и добавляем is_favorite и popularity
-    exercise_ids = [e.id for e in result["items"]]
-    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
-    favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
-    
-    items = []
-    for e in result["items"]:
-        item = e.to_dict()
-        item['is_favorite'] = e.id in favorite_exercise_ids
-        item['popularity'] = popularity_dict.get(e.id, 0)
-        items.append(item)
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
     
     return SPaginationResponse(
         items=items,
@@ -138,26 +113,16 @@ async def get_available_exercises(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     
-    # Используем метод с пагинацией и сортировкой на уровне БД
+    # Получаем все доступные упражнения с пагинацией
     result = await ExerciseReferenceDAO.search_by_caption_paginated(
         search_query="",  # Пустая строка для получения всех упражнений
         user_id=user.id,
         page=page,
-        size=size,
-        favorite_user_id=user_data.id  # Передаем user_id для сортировки по избранным на уровне БД
+        size=size
     )
     
-    # Преобразуем объекты в словари и добавляем is_favorite и popularity
-    exercise_ids = [e.id for e in result["items"]]
-    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
-    favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
-    
-    items = []
-    for e in result["items"]:
-        item = e.to_dict()
-        item['is_favorite'] = e.id in favorite_exercise_ids
-        item['popularity'] = popularity_dict.get(e.id, 0)
-        items.append(item)
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
     
     return SPaginationResponse(
         items=items,
@@ -200,28 +165,18 @@ async def search_available_exercises_by_caption(
     if equipment_names and equipment_names.strip():
         equipment_names_list = [en.strip() for en in equipment_names.split(',') if en.strip()]
     
-    # Используем метод с пагинацией и сортировкой на уровне БД
+    # Получаем доступные упражнения по caption с пагинацией
     result = await ExerciseReferenceDAO.search_by_caption_paginated(
         search_query=caption or "",
         user_id=user.id,
         page=page,
         size=size,
-        favorite_user_id=user_data.id,  # Передаем user_id для сортировки по избранным на уровне БД
         muscle_groups_filter=muscle_groups_list,
         equipment_names_filter=equipment_names_list
     )
     
-    # Преобразуем объекты в словари и добавляем is_favorite и popularity
-    exercise_ids = [e.id for e in result["items"]]
-    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
-    favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
-    
-    items = []
-    for e in result["items"]:
-        item = e.to_dict()
-        item['is_favorite'] = e.id in favorite_exercise_ids
-        item['popularity'] = popularity_dict.get(e.id, 0)
-        items.append(item)
+    # Преобразуем объекты в словари для ответа
+    items = [e.to_dict() for e in result["items"]]
     
     return SPaginationResponse(
         items=items,
@@ -281,10 +236,7 @@ async def get_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data 
     rez = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
     if rez is None:
         return {'message': f'Упражнение справочника с ID {exercise_reference_uuid} не найдено!'}
-    item = rez.to_dict()
-    # Добавляем поле is_favorite
-    item['is_favorite'] = await UserFavoriteExerciseDAO.is_favorite(user_data.id, rez.id)
-    return item
+    return rez.to_dict()
 
 @router.post('/add/', summary='Создать упражнение справочника')
 async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = Depends(get_current_user_user)) -> dict:
@@ -665,12 +617,6 @@ async def get_passed_exercise_references(
             return []
         
         result = []
-        exercise_ids = [ex.id for ex in exercises]
-        
-        # Получаем популярность и избранные одним запросом
-        popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
-        favorite_exercise_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
-        
         for exercise in exercises:
             try:
                 # Формируем упрощенный ответ с только нужными полями
@@ -679,9 +625,7 @@ async def get_passed_exercise_references(
                     'caption': exercise.caption,
                     'description': exercise.description,
                     'muscle_group': exercise.muscle_group,
-                    'gif_uuid': str(exercise.gif.uuid) if exercise.gif else None,
-                    'is_favorite': exercise.id in favorite_exercise_ids,
-                    'popularity': popularity_dict.get(exercise.id, 0)
+                    'gif_uuid': str(exercise.gif.uuid) if exercise.gif else None
                 }
                 
                 result.append(data)
@@ -689,71 +633,10 @@ async def get_passed_exercise_references(
                 print(f"Ошибка при обработке упражнения {exercise.id}: {ex}")
                 continue
         
-        # Сортируем: сначала избранные первыми, затем по популярности (от большего к меньшему)
-        # Разделяем на две группы и сортируем каждую отдельно
-        favorites = [item for item in result if item.get('is_favorite', False)]
-        non_favorites = [item for item in result if not item.get('is_favorite', False)]
-        
-        # Сортируем каждую группу по популярности (от большего к меньшему)
-        favorites.sort(key=lambda x: x.get('popularity', 0), reverse=True)
-        non_favorites.sort(key=lambda x: x.get('popularity', 0), reverse=True)
-        
-        # Объединяем: сначала избранные, затем не избранные
-        result = favorites + non_favorites
-        
         return result
         
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка при получении упражнений: {str(e)}"
-        )
-
-
-@router.post('/{exercise_uuid}/favorite', summary='Добавить упражнение в избранное')
-async def add_to_favorites(
-    exercise_uuid: UUID,
-    current_user: User = Depends(get_current_user_user)
-) -> dict:
-    """Добавляет упражнение в избранное текущего пользователя"""
-    # Получаем упражнение
-    exercise = await ExerciseReferenceDAO.find_full_data(exercise_uuid)
-    
-    # Добавляем в избранное
-    favorite_uuid = await UserFavoriteExerciseDAO.add_to_favorites(
-        user_id=current_user.id,
-        exercise_reference_id=exercise.id
-    )
-    
-    return {
-        "message": "Упражнение добавлено в избранное",
-        "exercise_uuid": str(exercise_uuid),
-        "favorite_uuid": str(favorite_uuid)
-    }
-
-
-@router.delete('/{exercise_uuid}/favorite', summary='Удалить упражнение из избранного')
-async def remove_from_favorites(
-    exercise_uuid: UUID,
-    current_user: User = Depends(get_current_user_user)
-) -> dict:
-    """Удаляет упражнение из избранного текущего пользователя"""
-    # Получаем упражнение
-    exercise = await ExerciseReferenceDAO.find_full_data(exercise_uuid)
-    
-    # Удаляем из избранного
-    removed = await UserFavoriteExerciseDAO.remove_from_favorites(
-        user_id=current_user.id,
-        exercise_reference_id=exercise.id
-    )
-    
-    if not removed:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Упражнение не найдено в избранном"
-        )
-    
-    return {
-        "message": "Упражнение удалено из избранного",
-        "exercise_uuid": str(exercise_uuid)
-    } 
+        ) 

@@ -8,6 +8,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from fastapi import HTTPException, status
 from uuid import UUID
+from typing import Optional
 from app.programs.models import Program
 
 
@@ -57,14 +58,17 @@ class TrainingDAO(BaseDAO):
 
     @classmethod
     async def find_full_data_by_id(cls, object_id: int):
+        """
+        Оптимизированная версия find_full_data_by_id.
+        НЕ загружает коллекции exercise_groups, user_trainings, user_exercises,
+        так как они могут содержать тысячи записей и не нужны для просмотра одной тренировки.
+        """
         async with async_session_maker() as session:
             query = select(cls.model).options(
                 joinedload(cls.model.image),
-                joinedload(cls.model.program),
-                joinedload(cls.model.user),
-                joinedload(cls.model.exercise_groups),
-                joinedload(cls.model.user_trainings),
-                joinedload(cls.model.user_exercises)
+                joinedload(cls.model.program).joinedload(Program.image),
+                joinedload(cls.model.user)
+                # НЕ загружаем: exercise_groups, user_trainings, user_exercises (большие коллекции)
             ).filter_by(id=object_id)
             result = await session.execute(query)
             result = result.unique()

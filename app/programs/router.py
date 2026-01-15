@@ -38,20 +38,24 @@ async def get_all_programs(request_body: RBProgram = Depends(), user_data = Depe
 
 @router.get("/{program_uuid}", summary="Получить одну программу по id")
 async def get_program_by_id(program_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+    """
+    Получить программу по UUID. Оптимизирован для быстрой загрузки.
+    НЕ загружает связанные коллекции (trainings, user_trainings и т.д.) для экономии памяти.
+    """
     rez = await ProgramDAO.find_full_data(program_uuid)
-    if rez is None:
-        return {'message': f'Программа с ID {program_uuid} не найдена!'}
-    category = await CategoryDAO.find_one_or_none(id=rez.category_id)
-    user = await UsersDAO.find_one_or_none(id=rez.user_id) if rez.user_id else None
+    
+    # Данные уже загружены через joinedload в find_full_data, используем их напрямую
     data = rez.to_dict()
     data.pop('category_id', None)
     data.pop('user_id', None)
     data.pop('category_uuid', None)
     data.pop('user_uuid', None)
     data.pop('schedule_type', None)
-    # training_days теперь возвращаем
-    data['category'] = category.to_dict() if category else None
-    data['user'] = await user.to_dict() if user else None
+    
+    # Используем уже загруженные объекты вместо дополнительных запросов
+    data['category'] = rez.category.to_dict() if rez.category else None
+    data['user'] = await rez.user.to_dict() if rez.user else None
+    
     return data
 
 

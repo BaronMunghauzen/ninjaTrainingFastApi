@@ -4,15 +4,12 @@ from app.files.dao import FilesDAO
 from app.users.dao import UsersDAO
 from app.exercises.models import Exercise
 from app.user_exercises.models import UserExercise, ExerciseStatus
-from app.user_favorite_exercises.models import UserFavoriteExercise
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from app.database import async_session_maker
 from fastapi import HTTPException, status
 from uuid import UUID
-from sqlalchemy import select, or_, func, case, literal
-from sqlalchemy.orm import aliased
-from typing import Dict, Optional
+from sqlalchemy import select, or_, func
 
 class ExerciseReferenceDAO(BaseDAO):
     model = ExerciseReference
@@ -64,8 +61,8 @@ class ExerciseReferenceDAO(BaseDAO):
             return objects
 
     @classmethod
-    async def find_all_paginated(cls, *, page: int = 1, size: int = 20, user_id: Optional[int] = None, **filter_by):
-        """Получение всех элементов с пагинацией и сортировкой по избранным и популярности на уровне БД"""
+    async def find_all_paginated(cls, *, page: int = 1, size: int = 20, **filter_by):
+        """Получение всех элементов с пагинацией"""
         filters = filter_by.copy()
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
             if uuid_field in filters:
@@ -80,23 +77,6 @@ class ExerciseReferenceDAO(BaseDAO):
             # Базовый запрос для подсчета общего количества
             count_query = select(func.count(cls.model.id)).filter_by(**filters)
             
-            # Подзапросы для вычисления популярности и is_favorite в ORDER BY
-            popularity_subq = select(
-                func.count(Exercise.id)
-            ).where(
-                Exercise.exercise_reference_id == cls.model.id,
-                Exercise.exercise_reference_id.isnot(None)
-            ).scalar_subquery()
-            
-            is_favorite_subq = None
-            if user_id:
-                is_favorite_subq = select(
-                    func.count(UserFavoriteExercise.id)
-                ).where(
-                    UserFavoriteExercise.exercise_reference_id == cls.model.id,
-                    UserFavoriteExercise.user_id == user_id
-                ).scalar_subquery()
-            
             # Запрос для получения данных
             data_query = select(cls.model).options(
                 joinedload(cls.model.image),
@@ -105,21 +85,10 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.user)
             ).filter_by(**filters)
             
-            # Сортировка: сначала избранные (is_favorite DESC), затем по популярности (popularity DESC)
-            if user_id is not None and is_favorite_subq is not None:
-                # Сортируем: сначала is_favorite=1, затем is_favorite=0, затем по популярности
-                data_query = data_query.order_by(
-                    is_favorite_subq.desc(),
-                    popularity_subq.desc()
-                )
-            else:
-                # Если user_id не передан, сортируем только по популярности
-                data_query = data_query.order_by(popularity_subq.desc())
-            
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
                 data_result = await session.execute(data_query)
-                objects = data_result.unique().scalars().all()
+                objects = data_result.scalars().all()
                 total = len(objects)
                 return {
                     "items": objects,
@@ -137,7 +106,7 @@ class ExerciseReferenceDAO(BaseDAO):
             total = count_result.scalar()
             
             data_result = await session.execute(data_query)
-            objects = data_result.unique().scalars().all()
+            objects = data_result.scalars().all()
             
             # Вычисляем количество страниц
             pages = (total + size - 1) // size if total > 0 else 0
@@ -168,25 +137,9 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.gif),
                 joinedload(cls.model.user)
             ).filter(
+                func.lower(cls.model.caption).like(f"%{caption.lower()}%"),
                 *[getattr(cls.model, k) == v for k, v in filters.items()]
             )
-            
-            # Добавляем фильтр по caption с поиском по словам
-            if caption and caption.strip():
-                # Разбиваем поисковый запрос на слова и ищем все слова в названии
-                search_words = [word.strip() for word in caption.strip().split() if word.strip()]
-                if search_words:
-                    # Создаем условия для каждого слова (все слова должны присутствовать)
-                    word_conditions = [
-                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
-                        for word in search_words
-                    ]
-                    # Объединяем все условия через AND
-                    caption_filter = word_conditions[0]
-                    for condition in word_conditions[1:]:
-                        caption_filter = caption_filter & condition
-                    
-                    query = query.filter(caption_filter)
             result = await session.execute(query)
             objects = result.scalars().all()
             return objects
@@ -211,28 +164,15 @@ class ExerciseReferenceDAO(BaseDAO):
             
             # Добавляем фильтр по поисковому запросу только если он не пустой
             if search_query.strip():
-                # Разбиваем поисковый запрос на слова и ищем все слова в названии
-                search_words = [word.strip() for word in search_query.strip().split() if word.strip()]
-                if search_words:
-                    # Создаем условия для каждого слова (все слова должны присутствовать)
-                    word_conditions = [
-                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
-                        for word in search_words
-                    ]
-                    # Объединяем все условия через AND
-                    search_filter = word_conditions[0]
-                    for condition in word_conditions[1:]:
-                        search_filter = search_filter & condition
-                    
-                    query = query.filter(search_filter)
+                query = query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
             
             result = await session.execute(query)
             objects = result.scalars().all()
             return objects
 
     @classmethod
-    async def find_by_caption_paginated(cls, *, caption: str, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, user_id: Optional[int] = None, **filter_by):
-        """Поиск по caption с пагинацией и сортировкой по избранным и популярности на уровне БД"""
+    async def find_by_caption_paginated(cls, *, caption: str, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, **filter_by):
+        """Поиск по caption с пагинацией"""
         filters = filter_by.copy()
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
             if uuid_field in filters:
@@ -249,23 +189,6 @@ class ExerciseReferenceDAO(BaseDAO):
                 *[getattr(cls.model, k) == v for k, v in filters.items()]
             )
             
-            # Подзапросы для вычисления популярности и is_favorite в ORDER BY
-            popularity_subq = select(
-                func.count(Exercise.id)
-            ).where(
-                Exercise.exercise_reference_id == cls.model.id,
-                Exercise.exercise_reference_id.isnot(None)
-            ).scalar_subquery()
-            
-            is_favorite_subq = None
-            if user_id:
-                is_favorite_subq = select(
-                    func.count(UserFavoriteExercise.id)
-                ).where(
-                    UserFavoriteExercise.exercise_reference_id == cls.model.id,
-                    UserFavoriteExercise.user_id == user_id
-                ).scalar_subquery()
-            
             # Запрос для получения данных
             data_query = select(cls.model).options(
                 joinedload(cls.model.image),
@@ -278,21 +201,9 @@ class ExerciseReferenceDAO(BaseDAO):
             
             # Добавляем фильтр по caption только если он не пустой
             if caption and caption.strip():
-                # Разбиваем поисковый запрос на слова и ищем все слова в названии
-                search_words = [word.strip() for word in caption.strip().split() if word.strip()]
-                if search_words:
-                    # Создаем условия для каждого слова (все слова должны присутствовать)
-                    word_conditions = [
-                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
-                        for word in search_words
-                    ]
-                    # Объединяем все условия через AND
-                    caption_filter = word_conditions[0]
-                    for condition in word_conditions[1:]:
-                        caption_filter = caption_filter & condition
-                    
-                    count_query = count_query.filter(caption_filter)
-                    data_query = data_query.filter(caption_filter)
+                caption_filter = func.lower(cls.model.caption).like(f"%{caption.lower()}%")
+                count_query = count_query.filter(caption_filter)
+                data_query = data_query.filter(caption_filter)
             
             # Добавляем фильтр по группам мышц если они переданы
             if muscle_groups_filter and len(muscle_groups_filter) > 0:
@@ -321,19 +232,10 @@ class ExerciseReferenceDAO(BaseDAO):
                 count_query = count_query.filter(equipment_filter)
                 data_query = data_query.filter(equipment_filter)
             
-            # Сортировка: сначала избранные (is_favorite DESC), затем по популярности (popularity DESC)
-            if user_id is not None and is_favorite_subq is not None:
-                data_query = data_query.order_by(
-                    is_favorite_subq.desc(),
-                    popularity_subq.desc()
-                )
-            else:
-                data_query = data_query.order_by(popularity_subq.desc())
-            
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
                 data_result = await session.execute(data_query)
-                objects = data_result.unique().scalars().all()
+                objects = data_result.scalars().all()
                 total = len(objects)
                 return {
                     "items": objects,
@@ -351,7 +253,7 @@ class ExerciseReferenceDAO(BaseDAO):
             total = count_result.scalar()
             
             data_result = await session.execute(data_query)
-            objects = data_result.unique().scalars().all()
+            objects = data_result.scalars().all()
             
             # Вычисляем количество страниц
             pages = (total + size - 1) // size if total > 0 else 0
@@ -365,32 +267,11 @@ class ExerciseReferenceDAO(BaseDAO):
             }
 
     @classmethod
-    async def search_by_caption_paginated(cls, *, search_query: str, user_id: int, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, favorite_user_id: Optional[int] = None):
-        """Поиск по caption с учетом exercise_type и user_id с пагинацией и сортировкой по избранным и популярности на уровне БД"""
+    async def search_by_caption_paginated(cls, *, search_query: str, user_id: int, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None):
+        """Поиск по caption с учетом exercise_type и user_id с пагинацией"""
         from sqlalchemy import or_
         
-        # Если favorite_user_id не указан, используем user_id для определения избранных
-        if favorite_user_id is None:
-            favorite_user_id = user_id
-        
         async with async_session_maker() as session:
-            # Подзапросы для вычисления популярности и is_favorite в ORDER BY
-            popularity_subq = select(
-                func.count(Exercise.id)
-            ).where(
-                Exercise.exercise_reference_id == cls.model.id,
-                Exercise.exercise_reference_id.isnot(None)
-            ).scalar_subquery()
-            
-            is_favorite_subq = None
-            if favorite_user_id:
-                is_favorite_subq = select(
-                    func.count(UserFavoriteExercise.id)
-                ).where(
-                    UserFavoriteExercise.exercise_reference_id == cls.model.id,
-                    UserFavoriteExercise.user_id == favorite_user_id
-                ).scalar_subquery()
-            
             # Базовый запрос для подсчета общего количества
             count_query = select(func.count(cls.model.id)).filter(
                 or_(
@@ -414,21 +295,8 @@ class ExerciseReferenceDAO(BaseDAO):
             
             # Добавляем фильтр по поисковому запросу только если он не пустой
             if search_query.strip():
-                # Разбиваем поисковый запрос на слова и ищем все слова в названии
-                search_words = [word.strip() for word in search_query.strip().split() if word.strip()]
-                if search_words:
-                    # Создаем условия для каждого слова (все слова должны присутствовать)
-                    word_conditions = [
-                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
-                        for word in search_words
-                    ]
-                    # Объединяем все условия через AND
-                    search_filter = word_conditions[0]
-                    for condition in word_conditions[1:]:
-                        search_filter = search_filter & condition
-                    
-                    count_query = count_query.filter(search_filter)
-                    data_query = data_query.filter(search_filter)
+                count_query = count_query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
+                data_query = data_query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
             
             # Добавляем фильтр по группам мышц если они переданы
             if muscle_groups_filter and len(muscle_groups_filter) > 0:
@@ -455,19 +323,10 @@ class ExerciseReferenceDAO(BaseDAO):
                 count_query = count_query.filter(equipment_filter)
                 data_query = data_query.filter(equipment_filter)
             
-            # Сортировка: сначала избранные (is_favorite DESC), затем по популярности (popularity DESC)
-            if favorite_user_id is not None and is_favorite_subq is not None:
-                data_query = data_query.order_by(
-                    is_favorite_subq.desc(),
-                    popularity_subq.desc()
-                )
-            else:
-                data_query = data_query.order_by(popularity_subq.desc())
-            
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
                 data_result = await session.execute(data_query)
-                objects = data_result.unique().scalars().all()
+                objects = data_result.scalars().all()
                 total = len(objects)
                 return {
                     "items": objects,
@@ -485,7 +344,7 @@ class ExerciseReferenceDAO(BaseDAO):
             total = count_result.scalar()
             
             data_result = await session.execute(data_query)
-            objects = data_result.unique().scalars().all()
+            objects = data_result.scalars().all()
             
             # Вычисляем количество страниц
             pages = (total + size - 1) // size if total > 0 else 0
@@ -729,34 +588,3 @@ class ExerciseReferenceDAO(BaseDAO):
         except Exception as e:
             print(f"Ошибка в find_passed_exercises: {e}")
             return []
-
-    @classmethod
-    async def get_exercise_reference_popularity(cls, exercise_reference_ids: list[int]) -> Dict[int, int]:
-        """
-        Получает популярность упражнений из справочника по количеству записей в таблице exercise.
-        Возвращает словарь {exercise_reference_id: count}
-        """
-        if not exercise_reference_ids:
-            return {}
-        
-        async with async_session_maker() as session:
-            query = select(
-                Exercise.exercise_reference_id,
-                func.count(Exercise.id).label('count')
-            ).filter(
-                Exercise.exercise_reference_id.in_(exercise_reference_ids),
-                Exercise.exercise_reference_id.isnot(None)
-            ).group_by(Exercise.exercise_reference_id)
-            
-            result = await session.execute(query)
-            rows = result.all()
-            
-            # Создаем словарь {exercise_reference_id: count}
-            popularity_dict = {row.exercise_reference_id: row.count for row in rows}
-            
-            # Для упражнений, которых нет в результатах, устанавливаем популярность 0
-            for ex_ref_id in exercise_reference_ids:
-                if ex_ref_id not in popularity_dict:
-                    popularity_dict[ex_ref_id] = 0
-            
-            return popularity_dict

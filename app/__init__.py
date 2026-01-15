@@ -10,6 +10,8 @@ from .user_program.models import UserProgram
 from .user_exercises.models import UserExercise
 from .user_training.models import UserTraining
 from .files.models import File
+# Import UserFavoriteExercise BEFORE ExerciseReference to ensure it's registered with SQLAlchemy first
+from .user_favorite_exercises.models import UserFavoriteExercise
 from .exercise_reference.models import ExerciseReference
 from .email_verification.models import EmailVerification
 
@@ -25,6 +27,7 @@ __all__ = [
     'UserTraining',
     'UserExercise',
     'File',
+    'UserFavoriteExercise',
     'ExerciseReference',
     'EmailVerification'
 ]
