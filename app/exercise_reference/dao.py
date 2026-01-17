@@ -181,9 +181,26 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.gif),
                 joinedload(cls.model.user)
             ).filter(
-                func.lower(cls.model.caption).like(f"%{caption.lower()}%"),
                 *[getattr(cls.model, k) == v for k, v in filters.items()]
             )
+            
+            # Добавляем фильтр по caption с поиском по словам
+            if caption and caption.strip():
+                # Разбиваем поисковый запрос на слова и ищем все слова в названии
+                search_words = [word.strip() for word in caption.strip().split() if word.strip()]
+                if search_words:
+                    # Создаем условия для каждого слова (все слова должны присутствовать)
+                    word_conditions = [
+                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
+                        for word in search_words
+                    ]
+                    # Объединяем все условия через AND
+                    caption_filter = word_conditions[0]
+                    for condition in word_conditions[1:]:
+                        caption_filter = caption_filter & condition
+                    
+                    query = query.filter(caption_filter)
+            
             result = await session.execute(query)
             objects = result.scalars().all()
             return objects
@@ -208,7 +225,20 @@ class ExerciseReferenceDAO(BaseDAO):
             
             # Добавляем фильтр по поисковому запросу только если он не пустой
             if search_query.strip():
-                query = query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
+                # Разбиваем поисковый запрос на слова и ищем все слова в названии
+                search_words = [word.strip() for word in search_query.strip().split() if word.strip()]
+                if search_words:
+                    # Создаем условия для каждого слова (все слова должны присутствовать)
+                    word_conditions = [
+                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
+                        for word in search_words
+                    ]
+                    # Объединяем все условия через AND
+                    search_filter = word_conditions[0]
+                    for condition in word_conditions[1:]:
+                        search_filter = search_filter & condition
+                    
+                    query = query.filter(search_filter)
             
             result = await session.execute(query)
             objects = result.scalars().all()
@@ -245,9 +275,21 @@ class ExerciseReferenceDAO(BaseDAO):
             
             # Добавляем фильтр по caption только если он не пустой
             if caption and caption.strip():
-                caption_filter = func.lower(cls.model.caption).like(f"%{caption.lower()}%")
-                count_query = count_query.filter(caption_filter)
-                data_query = data_query.filter(caption_filter)
+                # Разбиваем поисковый запрос на слова и ищем все слова в названии
+                search_words = [word.strip() for word in caption.strip().split() if word.strip()]
+                if search_words:
+                    # Создаем условия для каждого слова (все слова должны присутствовать)
+                    word_conditions = [
+                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
+                        for word in search_words
+                    ]
+                    # Объединяем все условия через AND
+                    caption_filter = word_conditions[0]
+                    for condition in word_conditions[1:]:
+                        caption_filter = caption_filter & condition
+                    
+                    count_query = count_query.filter(caption_filter)
+                    data_query = data_query.filter(caption_filter)
             
             # Добавляем фильтр по группам мышц если они переданы
             if muscle_groups_filter and len(muscle_groups_filter) > 0:
@@ -343,8 +385,21 @@ class ExerciseReferenceDAO(BaseDAO):
             
             # Добавляем фильтр по поисковому запросу только если он не пустой
             if search_query.strip():
-                count_query = count_query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
-                data_query = data_query.filter(func.lower(cls.model.caption).like(f"%{search_query.lower()}%"))
+                # Разбиваем поисковый запрос на слова и ищем все слова в названии
+                search_words = [word.strip() for word in search_query.strip().split() if word.strip()]
+                if search_words:
+                    # Создаем условия для каждого слова (все слова должны присутствовать)
+                    word_conditions = [
+                        func.lower(cls.model.caption).like(f"%{word.lower()}%")
+                        for word in search_words
+                    ]
+                    # Объединяем все условия через AND
+                    search_filter = word_conditions[0]
+                    for condition in word_conditions[1:]:
+                        search_filter = search_filter & condition
+                    
+                    count_query = count_query.filter(search_filter)
+                    data_query = data_query.filter(search_filter)
             
             # Добавляем фильтр по группам мышц если они переданы
             if muscle_groups_filter and len(muscle_groups_filter) > 0:
