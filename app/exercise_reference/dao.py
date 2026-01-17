@@ -4,12 +4,13 @@ from app.files.dao import FilesDAO
 from app.users.dao import UsersDAO
 from app.exercises.models import Exercise
 from app.user_exercises.models import UserExercise, ExerciseStatus
+from app.user_favorite_exercises.models import UserFavoriteExercise
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from app.database import async_session_maker
 from fastapi import HTTPException, status
 from uuid import UUID
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, case, exists
 
 class ExerciseReferenceDAO(BaseDAO):
     model = ExerciseReference
@@ -39,7 +40,7 @@ class ExerciseReferenceDAO(BaseDAO):
             return object_info
 
     @classmethod
-    async def find_all(cls, **filter_by):
+    async def find_all(cls, favorite_user_id: int = None, **filter_by):
         filters = filter_by.copy()
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
             if uuid_field in filters:
@@ -56,12 +57,40 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.gif),
                 joinedload(cls.model.user)
             ).filter_by(**filters)
+            
+            # Добавляем сортировку по избранным и популярности
+            if favorite_user_id:
+                query = cls._add_sorting_by_favorite_and_popularity(query, favorite_user_id)
+            
             result = await session.execute(query)
             objects = result.scalars().all()
             return objects
 
     @classmethod
-    async def find_all_paginated(cls, *, page: int = 1, size: int = 20, **filter_by):
+    def _add_sorting_by_favorite_and_popularity(cls, query, favorite_user_id: int = None):
+        """Добавляет сортировку по избранным и популярности к запросу"""
+        if favorite_user_id:
+            # Подзапрос для проверки избранного (возвращает 1 если избранное, 0 если нет)
+            favorite_subq = exists().where(
+                UserFavoriteExercise.exercise_reference_id == cls.model.id,
+                UserFavoriteExercise.user_id == favorite_user_id
+            )
+            
+            # Подзапрос для подсчета популярности (количество exercise)
+            popularity_subq = select(func.count(Exercise.id)).where(
+                Exercise.exercise_reference_id == cls.model.id
+            ).scalar_subquery()
+            
+            # CASE для is_favorite: 1 если избранное (exists = True), 0 если нет
+            is_favorite_expr = case((favorite_subq, 1), else_=0)
+            
+            # Сортировка: сначала is_favorite DESC (1 идет перед 0), затем popularity DESC
+            query = query.order_by(is_favorite_expr.desc(), popularity_subq.desc())
+        
+        return query
+
+    @classmethod
+    async def find_all_paginated(cls, *, page: int = 1, size: int = 20, favorite_user_id: int = None, **filter_by):
         """Получение всех элементов с пагинацией"""
         filters = filter_by.copy()
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
@@ -85,6 +114,10 @@ class ExerciseReferenceDAO(BaseDAO):
                 joinedload(cls.model.user)
             ).filter_by(**filters)
             
+            # Добавляем сортировку по избранным и популярности
+            if favorite_user_id:
+                data_query = cls._add_sorting_by_favorite_and_popularity(data_query, favorite_user_id)
+            
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
                 data_result = await session.execute(data_query)
@@ -98,7 +131,7 @@ class ExerciseReferenceDAO(BaseDAO):
                     "pages": 1
                 }
             
-            # Добавляем пагинацию
+            # Добавляем пагинацию ПОСЛЕ сортировки
             data_query = data_query.offset((page - 1) * size).limit(size)
             
             # Выполняем запросы
@@ -171,7 +204,7 @@ class ExerciseReferenceDAO(BaseDAO):
             return objects
 
     @classmethod
-    async def find_by_caption_paginated(cls, *, caption: str, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, **filter_by):
+    async def find_by_caption_paginated(cls, *, caption: str, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, favorite_user_id: int = None, **filter_by):
         """Поиск по caption с пагинацией"""
         filters = filter_by.copy()
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
@@ -232,6 +265,10 @@ class ExerciseReferenceDAO(BaseDAO):
                 count_query = count_query.filter(equipment_filter)
                 data_query = data_query.filter(equipment_filter)
             
+            # Добавляем сортировку по избранным и популярности
+            if favorite_user_id:
+                data_query = cls._add_sorting_by_favorite_and_popularity(data_query, favorite_user_id)
+            
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
                 data_result = await session.execute(data_query)
@@ -245,7 +282,7 @@ class ExerciseReferenceDAO(BaseDAO):
                     "pages": 1
                 }
             
-            # Добавляем пагинацию
+            # Добавляем пагинацию ПОСЛЕ сортировки
             data_query = data_query.offset((page - 1) * size).limit(size)
             
             # Выполняем запросы
@@ -267,7 +304,7 @@ class ExerciseReferenceDAO(BaseDAO):
             }
 
     @classmethod
-    async def search_by_caption_paginated(cls, *, search_query: str, user_id: int, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None):
+    async def search_by_caption_paginated(cls, *, search_query: str, user_id: int, page: int = 1, size: int = 20, muscle_groups_filter: list = None, equipment_names_filter: list = None, favorite_user_id: int = None):
         """Поиск по caption с учетом exercise_type и user_id с пагинацией"""
         from sqlalchemy import or_
         
@@ -323,6 +360,10 @@ class ExerciseReferenceDAO(BaseDAO):
                 count_query = count_query.filter(equipment_filter)
                 data_query = data_query.filter(equipment_filter)
             
+            # Добавляем сортировку по избранным и популярности
+            if favorite_user_id:
+                data_query = cls._add_sorting_by_favorite_and_popularity(data_query, favorite_user_id)
+            
             # Если пагинация не нужна (page=0 или size=0), возвращаем все элементы
             if page == 0 or size == 0:
                 data_result = await session.execute(data_query)
@@ -336,7 +377,7 @@ class ExerciseReferenceDAO(BaseDAO):
                     "pages": 1
                 }
             
-            # Добавляем пагинацию к запросу данных
+            # Добавляем пагинацию ПОСЛЕ сортировки
             data_query = data_query.offset((page - 1) * size).limit(size)
             
             # Выполняем запросы
