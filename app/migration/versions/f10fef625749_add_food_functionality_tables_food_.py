@@ -37,32 +37,29 @@ def upgrade() -> None:
         END $$;
     """)
     
-    # Создаем enum объекты для использования в таблице (create_type=False — не создавать при create_table)
-    goal_enum = sa.Enum('weight_loss', 'muscle_gain', 'maintenance', name='goalenum', create_type=False)
-    gender_enum = sa.Enum('male', 'female', name='genderenum', create_type=False)
-    
-    op.create_table('calorie_calculations',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('uuid', sa.UUID(), nullable=False),
-    sa.Column('actual', sa.Boolean(), server_default=sa.text('true'), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('goal', goal_enum, nullable=False),
-    sa.Column('gender', gender_enum, nullable=False),
-    sa.Column('weight', sa.Float(), nullable=False),
-    sa.Column('height', sa.Float(), nullable=False),
-    sa.Column('age', sa.Integer(), nullable=False),
-    sa.Column('activity_coefficient', sa.String(), nullable=False),
-    sa.Column('bmr', sa.Float(), nullable=False),
-    sa.Column('tdee', sa.Float(), nullable=False),
-    sa.Column('calories_for_weight_loss', sa.Text(), nullable=True),
-    sa.Column('calories_for_gain', sa.Text(), nullable=True),
-    sa.Column('calories_for_maintenance', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['user.id'], ),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_calorie_calculations_uuid'), 'calorie_calculations', ['uuid'], unique=True)
+    # Создаем таблицу calorie_calculations через SQL, чтобы избежать повторного создания enum типов
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS calorie_calculations (
+            id SERIAL PRIMARY KEY,
+            uuid UUID NOT NULL UNIQUE,
+            actual BOOLEAN NOT NULL DEFAULT true,
+            user_id INTEGER NOT NULL REFERENCES "user"(id),
+            goal goalenum NOT NULL,
+            gender genderenum NOT NULL,
+            weight DOUBLE PRECISION NOT NULL,
+            height DOUBLE PRECISION NOT NULL,
+            age INTEGER NOT NULL,
+            activity_coefficient VARCHAR NOT NULL,
+            bmr DOUBLE PRECISION NOT NULL,
+            tdee DOUBLE PRECISION NOT NULL,
+            calories_for_weight_loss TEXT,
+            calories_for_gain TEXT,
+            calories_for_maintenance TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_calorie_calculations_uuid ON calorie_calculations (uuid)")
     op.create_table('daily_targets',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('uuid', sa.UUID(), nullable=False),
