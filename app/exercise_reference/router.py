@@ -9,6 +9,8 @@ from app.users.dependencies import get_current_admin_user, get_current_user_user
 from app.files.dao import FilesDAO
 from app.files.service import FileService
 from app.users.dao import UsersDAO
+from app.user_favorite_exercises.dao import UserFavoriteExerciseDAO
+from app.logger import logger
 
 router = APIRouter(prefix='/exercise_reference', tags=['Справочник упражнений'])
 
@@ -639,4 +641,74 @@ async def get_passed_exercise_references(
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка при получении упражнений: {str(e)}"
+        )
+
+
+@router.post('/{exercise_reference_uuid}/favorite', summary='Добавить упражнение в избранное')
+async def add_exercise_to_favorites(
+    exercise_reference_uuid: UUID,
+    user_data = Depends(get_current_user_user)
+) -> dict:
+    """Добавляет упражнение в избранное текущего пользователя"""
+    try:
+        # Получаем упражнение
+        exercise = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+        if not exercise:
+            raise HTTPException(status_code=404, detail="Упражнение не найдено")
+        
+        # Добавляем в избранное
+        favorite_uuid = await UserFavoriteExerciseDAO.add_to_favorites(
+            user_id=user_data.id,
+            exercise_reference_id=exercise.id
+        )
+        
+        return {
+            "message": "Упражнение добавлено в избранное",
+            "exercise_reference_uuid": str(exercise_reference_uuid),
+            "favorite_uuid": str(favorite_uuid)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении упражнения в избранное {exercise_reference_uuid}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при добавлении упражнения в избранное: {str(e)}"
+        )
+
+
+@router.delete('/{exercise_reference_uuid}/favorite', summary='Удалить упражнение из избранного')
+async def remove_exercise_from_favorites(
+    exercise_reference_uuid: UUID,
+    user_data = Depends(get_current_user_user)
+) -> dict:
+    """Удаляет упражнение из избранного текущего пользователя"""
+    try:
+        # Получаем упражнение
+        exercise = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
+        if not exercise:
+            raise HTTPException(status_code=404, detail="Упражнение не найдено")
+        
+        # Удаляем из избранного
+        removed = await UserFavoriteExerciseDAO.remove_from_favorites(
+            user_id=user_data.id,
+            exercise_reference_id=exercise.id
+        )
+        
+        if not removed:
+            raise HTTPException(status_code=404, detail="Упражнение не найдено в избранном")
+        
+        return {
+            "message": "Упражнение удалено из избранного",
+            "exercise_reference_uuid": str(exercise_reference_uuid)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при удалении упражнения из избранного {exercise_reference_uuid}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при удалении упражнения из избранного: {str(e)}"
         ) 
