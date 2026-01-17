@@ -156,6 +156,16 @@ async def add_training(training: STrainingAdd, user_data = Depends(get_current_u
         values['image_id'] = image.id
     # Удаляю image_uuid если вдруг остался
     values.pop('image_uuid', None)
+    
+    # Устанавливаем значения по умолчанию для полей, которые не переданы, но обязательны в БД
+    if 'difficulty_level' not in values or values.get('difficulty_level') is None:
+        values['difficulty_level'] = 1
+    if 'order' not in values or values.get('order') is None:
+        values['order'] = 0
+    if 'muscle_group' not in values or values.get('muscle_group') is None:
+        values['muscle_group'] = ''  # Пустая строка или можно использовать какое-то дефолтное значение
+    if 'actual' not in values or values.get('actual') is None:
+        values['actual'] = False
 
     training_uuid = await TrainingDAO.add(**values)
     training_obj = await TrainingDAO.find_full_data(training_uuid)
