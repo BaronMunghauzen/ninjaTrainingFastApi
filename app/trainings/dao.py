@@ -26,6 +26,9 @@ class TrainingDAO(BaseDAO):
             query = select(cls.model).filter_by(stage=stage)
             if program_id is not None:
                 query = query.filter_by(program_id=program_id)
+            # Сортировка: сначала актуальные записи (actual=True), затем неактуальные (actual=False)
+            if hasattr(cls.model, 'actual'):
+                query = query.order_by(cls.model.actual.desc())
             result = await session.execute(query)
             objects = result.scalars().all()
             
@@ -100,6 +103,9 @@ class TrainingDAO(BaseDAO):
                 joinedload(cls.model.program).joinedload(Program.image),
                 joinedload(cls.model.user)
             ).filter_by(**filters)
+            # Сортировка: сначала актуальные записи (actual=True), затем неактуальные (actual=False)
+            if hasattr(cls.model, 'actual'):
+                query = query.order_by(cls.model.actual.desc())
             if hasattr(cls.model, 'order'):
                 query = query.order_by(cls.model.order.asc())
             result = await session.execute(query)
@@ -128,6 +134,9 @@ class TrainingDAO(BaseDAO):
                     (cls.model.training_type == "user") & (cls.model.user_id == user_id)
                 )
             )
+            # Сортировка: сначала актуальные записи (actual=True), затем неактуальные (actual=False)
+            if hasattr(cls.model, 'actual'):
+                query = query.order_by(cls.model.actual.desc())
             result = await session.execute(query)
             result = result.unique()
             objects = result.scalars().all()
@@ -178,6 +187,9 @@ class TrainingDAO(BaseDAO):
             training.actual = False
             await session.commit()
             
+            # Обновляем состояние объекта из БД перед отключением от сессии
+            await session.refresh(training)
+            
             # Отключаем объект от сессии
             session.expunge(training)
             return training
@@ -200,6 +212,9 @@ class TrainingDAO(BaseDAO):
             
             training.actual = True
             await session.commit()
+            
+            # Обновляем состояние объекта из БД перед отключением от сессии
+            await session.refresh(training)
             
             # Отключаем объект от сессии
             session.expunge(training)
