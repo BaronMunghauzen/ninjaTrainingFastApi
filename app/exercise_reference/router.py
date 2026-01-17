@@ -66,7 +66,7 @@ async def get_all_exercise_references(
 @router.get('/search/by-caption', summary='Поиск справочника упражнений по части названия (caption)')
 async def search_exercise_reference_by_caption(
     caption: Optional[str] = Query(None, description="Часть названия упражнения (поиск без учета регистра)"),
-    muscle_groups: Optional[str] = Query(None, description="Фильтр по группам мышц (список через запятую, поиск в muscle_group и auxiliary_muscle_groups)"),
+    muscle_groups: Optional[str] = Query(None, description="Фильтр по группам мышц (список через запятую, поиск только в основной группе мышц)"),
     equipment_names: Optional[str] = Query(None, description="Фильтр по названиям оборудования (список через запятую)"),
     page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
     size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
@@ -158,7 +158,7 @@ async def get_available_exercises(
 async def search_available_exercises_by_caption(
     user_uuid: UUID,
     caption: Optional[str] = Query(None, description="Часть названия упражнения (поиск без учета регистра)"),
-    muscle_groups: Optional[str] = Query(None, description="Фильтр по группам мышц (список через запятую, поиск в muscle_group и auxiliary_muscle_groups)"),
+    muscle_groups: Optional[str] = Query(None, description="Фильтр по группам мышц (список через запятую, поиск только в основной группе мышц)"),
     equipment_names: Optional[str] = Query(None, description="Фильтр по названиям оборудования (список через запятую)"),
     page: int = Query(1, ge=0, description="Номер страницы (0 для получения всех элементов)"),
     size: int = Query(20, ge=0, description="Размер страницы (0 для получения всех элементов)"),
