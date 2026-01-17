@@ -588,3 +588,28 @@ class ExerciseReferenceDAO(BaseDAO):
         except Exception as e:
             print(f"Ошибка в find_passed_exercises: {e}")
             return []
+
+    @classmethod
+    async def get_exercise_reference_popularity(cls, exercise_reference_ids: list[int]) -> dict[int, int]:
+        """Получить популярность упражнений (количество exercise, использующих exercise_reference) по списку ID"""
+        if not exercise_reference_ids:
+            return {}
+        
+        async with async_session_maker() as session:
+            # Подсчитываем количество exercise, которые используют каждое exercise_reference
+            query = select(
+                Exercise.exercise_reference_id,
+                func.count(Exercise.id).label('count')
+            ).where(
+                Exercise.exercise_reference_id.in_(exercise_reference_ids)
+            ).group_by(Exercise.exercise_reference_id)
+            
+            result = await session.execute(query)
+            popularity_dict = {row[0]: row[1] for row in result.all()}
+            
+            # Добавляем 0 для упражнений, которые не используются ни в одном exercise
+            for ex_id in exercise_reference_ids:
+                if ex_id not in popularity_dict:
+                    popularity_dict[ex_id] = 0
+            
+            return popularity_dict

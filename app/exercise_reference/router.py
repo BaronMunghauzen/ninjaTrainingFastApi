@@ -29,8 +29,19 @@ async def get_all_exercise_references(
         items = [e.to_dict() for e in exercises]
         # Добавляем is_favorite к каждому упражнению
         favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+        exercise_ids = [e.id for e in exercises]
+        popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
+        
         for exercise, item in zip(exercises, items):
             item['is_favorite'] = exercise.id in favorite_ids
+            item['_popularity'] = popularity_dict.get(exercise.id, 0)  # Временное поле для сортировки
+        
+        # Сортировка: сначала избранные по популярности (убывание), затем не избранные по популярности (убывание)
+        items.sort(key=lambda x: (not x['is_favorite'], -x['_popularity']))
+        # Удаляем временное поле
+        for item in items:
+            item.pop('_popularity', None)
+        
         return SPaginationResponse(
             items=items,
             total=len(items),
@@ -48,10 +59,20 @@ async def get_all_exercise_references(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
-    # Добавляем is_favorite к каждому упражнению
+    # Добавляем is_favorite и популярность к каждому упражнению
     favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+    exercise_ids = [e.id for e in result["items"]]
+    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
+    
     for exercise, item in zip(result["items"], items):
         item['is_favorite'] = exercise.id in favorite_ids
+        item['_popularity'] = popularity_dict.get(exercise.id, 0)  # Временное поле для сортировки
+    
+    # Сортировка: сначала избранные по популярности (убывание), затем не избранные по популярности (убывание)
+    items.sort(key=lambda x: (not x['is_favorite'], -x['_popularity']))
+    # Удаляем временное поле
+    for item in items:
+        item.pop('_popularity', None)
     
     return SPaginationResponse(
         items=items,
@@ -93,10 +114,20 @@ async def search_exercise_reference_by_caption(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
-    # Добавляем is_favorite к каждому упражнению
+    # Добавляем is_favorite и популярность к каждому упражнению
     favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+    exercise_ids = [e.id for e in result["items"]]
+    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
+    
     for exercise, item in zip(result["items"], items):
         item['is_favorite'] = exercise.id in favorite_ids
+        item['_popularity'] = popularity_dict.get(exercise.id, 0)  # Временное поле для сортировки
+    
+    # Сортировка: сначала избранные по популярности (убывание), затем не избранные по популярности (убывание)
+    items.sort(key=lambda x: (not x['is_favorite'], -x['_popularity']))
+    # Удаляем временное поле
+    for item in items:
+        item.pop('_popularity', None)
     
     return SPaginationResponse(
         items=items,
@@ -137,10 +168,20 @@ async def get_available_exercises(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
-    # Добавляем is_favorite к каждому упражнению
+    # Добавляем is_favorite и популярность к каждому упражнению
     favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user.id)
+    exercise_ids = [e.id for e in result["items"]]
+    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
+    
     for exercise, item in zip(result["items"], items):
         item['is_favorite'] = exercise.id in favorite_ids
+        item['_popularity'] = popularity_dict.get(exercise.id, 0)  # Временное поле для сортировки
+    
+    # Сортировка: сначала избранные по популярности (убывание), затем не избранные по популярности (убывание)
+    items.sort(key=lambda x: (not x['is_favorite'], -x['_popularity']))
+    # Удаляем временное поле
+    for item in items:
+        item.pop('_popularity', None)
     
     return SPaginationResponse(
         items=items,
@@ -195,10 +236,20 @@ async def search_available_exercises_by_caption(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
-    # Добавляем is_favorite к каждому упражнению
+    # Добавляем is_favorite и популярность к каждому упражнению
     favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user.id)
+    exercise_ids = [e.id for e in result["items"]]
+    popularity_dict = await ExerciseReferenceDAO.get_exercise_reference_popularity(exercise_ids)
+    
     for exercise, item in zip(result["items"], items):
         item['is_favorite'] = exercise.id in favorite_ids
+        item['_popularity'] = popularity_dict.get(exercise.id, 0)  # Временное поле для сортировки
+    
+    # Сортировка: сначала избранные по популярности (убывание), затем не избранные по популярности (убывание)
+    items.sort(key=lambda x: (not x['is_favorite'], -x['_popularity']))
+    # Удаляем временное поле
+    for item in items:
+        item.pop('_popularity', None)
     
     return SPaginationResponse(
         items=items,
