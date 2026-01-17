@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload
 from app.database import async_session_maker
 from fastapi import HTTPException, status
 from uuid import UUID
-from sqlalchemy import select, or_, func, case, exists
+from sqlalchemy import select, or_, func, case
 
 class ExerciseReferenceDAO(BaseDAO):
     model = ExerciseReference
@@ -70,22 +70,33 @@ class ExerciseReferenceDAO(BaseDAO):
     def _add_sorting_by_favorite_and_popularity(cls, query, favorite_user_id: int = None):
         """Добавляет сортировку по избранным и популярности к запросу"""
         if favorite_user_id:
-            # Подзапрос для проверки избранного (возвращает 1 если избранное, 0 если нет)
-            favorite_subq = exists().where(
+            # Подзапрос для проверки избранного (возвращает count: 0 если не избранное, >0 если избранное)
+            is_favorite_subq = select(
+                func.count(UserFavoriteExercise.id)
+            ).where(
                 UserFavoriteExercise.exercise_reference_id == cls.model.id,
                 UserFavoriteExercise.user_id == favorite_user_id
-            )
-            
-            # Подзапрос для подсчета популярности (количество exercise)
-            popularity_subq = select(func.count(Exercise.id)).where(
-                Exercise.exercise_reference_id == cls.model.id
             ).scalar_subquery()
             
-            # CASE для is_favorite: 1 если избранное (exists = True), 0 если нет
-            is_favorite_expr = case((favorite_subq, 1), else_=0)
+            # Подзапрос для подсчета популярности (количество exercise)
+            popularity_subq = select(
+                func.count(Exercise.id)
+            ).where(
+                Exercise.exercise_reference_id == cls.model.id,
+                Exercise.exercise_reference_id.isnot(None)
+            ).scalar_subquery()
             
-            # Сортировка: сначала is_favorite DESC (1 идет перед 0), затем popularity DESC
-            query = query.order_by(is_favorite_expr.desc(), popularity_subq.desc())
+            # Сортировка: сначала is_favorite DESC (1+ идет перед 0), затем popularity DESC
+            query = query.order_by(is_favorite_subq.desc(), popularity_subq.desc())
+        else:
+            # Если favorite_user_id не указан, сортируем только по популярности
+            popularity_subq = select(
+                func.count(Exercise.id)
+            ).where(
+                Exercise.exercise_reference_id == cls.model.id,
+                Exercise.exercise_reference_id.isnot(None)
+            ).scalar_subquery()
+            query = query.order_by(popularity_subq.desc())
         
         return query
 
