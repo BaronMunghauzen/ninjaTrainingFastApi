@@ -152,8 +152,19 @@ class UserTrainingDAO(BaseDAO):
             id_to_user[u.id] = await u.to_dict()
         
         # Формируем результат
+        from datetime import timezone
         result = []
         for ut in user_trainings:
+            # Преобразуем created_at в timezone-aware datetime (UTC)
+            created_at_with_tz = None
+            if ut.created_at:
+                # Если created_at naive (без часового пояса), добавляем UTC
+                if ut.created_at.tzinfo is None:
+                    created_at_with_tz = ut.created_at.replace(tzinfo=timezone.utc)
+                else:
+                    created_at_with_tz = ut.created_at
+                created_at_with_tz = created_at_with_tz.isoformat()
+            
             data = {
                 "uuid": str(ut.uuid),
                 "status": ut.status.value,
@@ -162,7 +173,8 @@ class UserTrainingDAO(BaseDAO):
                 "week": ut.week,
                 "weekday": ut.weekday,
                 "is_rest_day": ut.is_rest_day,
-                "stage": ut.stage
+                "stage": ut.stage,
+                "created_at": created_at_with_tz
             }
             
             # Используем предзагруженные связанные данные
@@ -237,8 +249,19 @@ class UserTrainingDAO(BaseDAO):
             id_to_user[u.id] = await u.to_dict()
         
         # Формируем результат
+        from datetime import timezone
         result = []
         for ut in user_trainings:
+            # Преобразуем created_at в timezone-aware datetime (UTC)
+            created_at_with_tz = None
+            if ut.created_at:
+                # Если created_at naive (без часового пояса), добавляем UTC
+                if ut.created_at.tzinfo is None:
+                    created_at_with_tz = ut.created_at.replace(tzinfo=timezone.utc)
+                else:
+                    created_at_with_tz = ut.created_at
+                created_at_with_tz = created_at_with_tz.isoformat()
+            
             data = {
                 "uuid": str(ut.uuid),
                 "status": ut.status.value,
@@ -247,7 +270,8 @@ class UserTrainingDAO(BaseDAO):
                 "week": ut.week,
                 "weekday": ut.weekday,
                 "is_rest_day": ut.is_rest_day,
-                "stage": ut.stage
+                "stage": ut.stage,
+                "created_at": created_at_with_tz
             }
             
             # Используем предзагруженные связанные данные

@@ -7,6 +7,7 @@ from app.database import Base, int_pk, uuid_field
 
 if TYPE_CHECKING:
     from app.users.models import User
+    from app.promo_codes.models import PromoCode
 
 
 class SubscriptionPlanEnum(str, Enum):
@@ -67,6 +68,7 @@ class Payment(Base):
     # Связи
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     plan_id: Mapped[int] = mapped_column(ForeignKey("subscription_plans.id"))
+    promo_code_id: Mapped[int | None] = mapped_column(ForeignKey("promo_codes.id"), nullable=True)  # Промокод (не обязательный)
     
     # Данные платежа
     amount: Mapped[float] = mapped_column(Numeric(10, 2))
@@ -92,6 +94,7 @@ class Payment(Base):
     # Отношения
     user: Mapped["User"] = relationship("User", back_populates="payments")
     plan: Mapped["SubscriptionPlan"] = relationship("SubscriptionPlan")
+    promo_code: Mapped["PromoCode"] = relationship("PromoCode", back_populates="payments")
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id}, user_id={self.user_id}, status={self.status})"

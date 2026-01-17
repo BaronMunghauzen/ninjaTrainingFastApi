@@ -33,6 +33,10 @@ class SPaymentInitiate(BaseModel):
         None,
         description="Способы оплаты: sbp, card, tinkoff, dolyame (по умолчанию card и sbp)"
     )
+    promo_code: Optional[str] = Field(
+        None,
+        description="Промокод для скидки (не обязательное поле)"
+    )
 
 
 class SPaymentResponse(BaseModel):

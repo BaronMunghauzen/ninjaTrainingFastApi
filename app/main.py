@@ -26,6 +26,7 @@ from app.achievements.router import router as router_achievements
 from app.password_reset.router import router as router_password_reset
 from app.user_measurements.router import router as router_user_measurements
 from app.subscriptions.router import router as router_subscriptions
+from app.promo_codes.router import router as router_promo_codes
 from app.notifications.router import router as router_notifications
 from app.last_values.router import router as router_last_values
 from app.logs.router import router as router_logs
@@ -186,13 +187,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             # Получаем имя поля из локации
             field_name = err['loc'][-1] if err['loc'] else 'unknown'
             errors.append(f"Поле '{field_name}' обязательно для заполнения")
-        elif err['type'] == 'value_error':
-            errors.append(f"Некорректное значение для поля '{err['loc'][-1]}'")
+        elif err['type'] == 'value_error' or err['type'] == 'value_error.model':
+            # Проверяем, есть ли кастомное сообщение об ошибке
+            if 'msg' in err and err['msg'] and not err['msg'].startswith('Value error'):
+                errors.append(err['msg'])
+            else:
+                # Получаем имя поля из локации, пропуская 'body'
+                loc = [str(loc) for loc in err['loc'] if loc != 'body']
+                field_name = loc[-1] if loc else 'unknown'
+                errors.append(f"Некорректное значение для поля '{field_name}'")
         elif err['type'] == 'model':
             # Ошибки валидации модели (например, из @model_validator)
             errors.append(err['msg'])
         else:
-            errors.append(err['msg'])
+            # Для других типов ошибок используем сообщение
+            errors.append(err.get('msg', 'Ошибка валидации'))
     
     # Если есть ошибки, возвращаем первую
     detail = errors[0] if errors else "Ошибка валидации данных"
@@ -547,6 +556,7 @@ app.include_router(router_achievements)
 app.include_router(router_password_reset)
 app.include_router(router_user_measurements)
 app.include_router(router_subscriptions)
+app.include_router(router_promo_codes)
 app.include_router(router_notifications)
 app.include_router(router_last_values)
 app.include_router(router_logs)

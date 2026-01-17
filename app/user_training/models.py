@@ -4,7 +4,7 @@ from typing import Optional, List, TYPE_CHECKING, Literal
 from sqlalchemy import ForeignKey, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, str_uniq, int_pk, str_null_true, uuid_field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 if TYPE_CHECKING:
     from app.user_program.models import UserProgram
@@ -57,6 +57,16 @@ class UserTraining(Base):
                 f"training={self.training_id}, status={self.status})>")
 
     def to_dict(self):
+        # Преобразуем created_at в timezone-aware datetime (UTC)
+        created_at_with_tz = None
+        if self.created_at:
+            # Если created_at naive (без часового пояса), добавляем UTC
+            if self.created_at.tzinfo is None:
+                created_at_with_tz = self.created_at.replace(tzinfo=timezone.utc)
+            else:
+                created_at_with_tz = self.created_at
+            created_at_with_tz = created_at_with_tz.isoformat()
+        
         return {
             "uuid": str(self.uuid),
             "user_program_id": self.user_program_id,
@@ -71,5 +81,6 @@ class UserTraining(Base):
             "duration": self.duration,
             "week": self.week,
             "weekday": self.weekday,
-            "is_rest_day": self.is_rest_day
+            "is_rest_day": self.is_rest_day,
+            "created_at": created_at_with_tz
         }

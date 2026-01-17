@@ -2,8 +2,8 @@
 API роутер для работы с подписками
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from typing import List, Optional
 from datetime import datetime, date
 import logging
 
@@ -29,20 +29,57 @@ router = APIRouter(prefix='/api/subscriptions', tags=['Subscriptions'])
 
 
 @router.get("/plans", response_model=List[SSubscriptionPlanResponse])
-async def get_subscription_plans():
+async def get_subscription_plans(promo_code: Optional[str] = None):
     """
     Получить список всех доступных тарифных планов
     
-    Возвращает все активные планы, отсортированные по длительности
+    Возвращает все активные планы, отсортированные по длительности.
+    Если передан промокод, цены будут уменьшены на указанный процент.
     """
     try:
         plans = await SubscriptionPlanDAO.find_all(is_active=True)
         
-        # Сортируем по длительности
+        # Проверяем и применяем промокод, если он передан
+        discount_percent = 0.0
+        if promo_code:
+            from app.promo_codes.dao import PromoCodeDAO
+            promo = await PromoCodeDAO.find_by_code(promo_code)
+            
+            if not promo:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Введенный промокод не найден"
+                )
+            
+            if not promo.actual:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Промокод неактуален"
+                )
+            
+            discount_percent = float(promo.discount_percent)
+        
+        # Сортируем по длительности и применяем скидку при необходимости
         plans_sorted = sorted(plans, key=lambda x: x.duration_months)
+        
+        # Если промокод валиден, применяем скидку к ценам
+        if discount_percent > 0:
+            import math
+            for plan in plans_sorted:
+                # Вычисляем скидку и округляем вниз до целого
+                original_price = float(plan.price)
+                discount_amount = (original_price * discount_percent) / 100.0
+                plan.price = float(int(original_price - discount_amount))  # Округляем вниз
+                
+                # Пересчитываем price_per_month с учетом скидки
+                original_price_per_month = float(plan.price_per_month)
+                discount_amount_per_month = (original_price_per_month * discount_percent) / 100.0
+                plan.price_per_month = float(int(original_price_per_month - discount_amount_per_month))  # Округляем вниз
         
         return plans_sorted
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Ошибка получения тарифных планов: {e}")
         raise HTTPException(
@@ -100,7 +137,8 @@ async def purchase_subscription(
             user_id=user.id,
             plan_uuid=str(data.plan_uuid),
             return_url=data.return_url,
-            payment_mode=data.payment_mode
+            payment_mode=data.payment_mode,
+            promo_code=data.promo_code
         )
         
         logger.info(f"Платёжная ссылка создана для пользователя {user.id}: {result['payment_uuid']}")

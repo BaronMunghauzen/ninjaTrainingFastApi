@@ -80,7 +80,8 @@ class SubscriptionService:
         user_id: int,
         plan_uuid: str,
         return_url: Optional[str] = None,
-        payment_mode: Optional[list] = None
+        payment_mode: Optional[list] = None,
+        promo_code: Optional[str] = None
     ) -> dict:
         """
         Инициация платежа - создание платёжной ссылки
@@ -112,12 +113,35 @@ class SubscriptionService:
         
         logger.info(f"Инициация платежа для пользователя {user_id}, план {plan.name}")
         
+        # Проверяем и применяем промокод, если он передан
+        promo_code_id = None
+        final_amount = float(plan.price)
+        
+        if promo_code:
+            from app.promo_codes.dao import PromoCodeDAO
+            promo = await PromoCodeDAO.find_by_code(promo_code)
+            
+            if not promo:
+                raise Exception(f"Введенный промокод не найден")
+            
+            if not promo.actual:
+                raise Exception(f"Промокод неактуален")
+            
+            discount_percent = float(promo.discount_percent)
+            # Вычисляем скидку и округляем вниз до целого
+            discount_amount = (final_amount * discount_percent) / 100.0
+            final_amount = final_amount - discount_amount
+            final_amount = float(int(final_amount))  # Округляем вниз до целого
+            promo_code_id = promo.id
+            logger.info(f"Применен промокод {promo_code}: скидка {discount_percent}%, итоговая сумма {final_amount}")
+        
         # Создаем запись о платеже в БД
         payment_data = {
             'user_id': user_id,
             'plan_id': plan.id,
-            'amount': float(plan.price),
-            'status': 'pending'
+            'amount': final_amount,
+            'status': 'pending',
+            'promo_code_id': promo_code_id
         }
         
         payment_uuid = await PaymentDAO.add(**payment_data)
@@ -135,8 +159,15 @@ class SubscriptionService:
             payment_mode = ["card", "sbp"]
         
         try:
+            # Логируем информацию о сумме платежа
+            original_price = float(plan.price)
+            if promo_code_id:
+                logger.info(f"Создание платежной ссылки: исходная цена={original_price}, итоговая сумма с учетом скидки={final_amount}, промокод_id={promo_code_id}")
+            else:
+                logger.info(f"Создание платежной ссылки: сумма={final_amount} (без промокода)")
+            
             payment_info = await tochka.create_payment_link(
-                amount=float(plan.price),
+                amount=final_amount,
                 description=f"Подписка NinjaTraining: {plan.name}",
                 user_id=user.id,
                 user_uuid=str(user.uuid),

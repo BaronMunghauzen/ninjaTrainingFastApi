@@ -14,6 +14,7 @@ from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
 from app.users.dao import UsersDAO
 from app.services.schedule_generator import ScheduleGenerator
+from app.logger import logger
 
 router = APIRouter(prefix='/user_trainings', tags=['Работа с пользовательскими тренировками'])
 
@@ -51,6 +52,56 @@ async def activate_next_training(user_training):
     except Exception as e:
         print(f"Ошибка при активации следующей тренировки: {e}")
         return False, None
+
+
+async def finish_program_if_completed(user_training):
+    """Завершить программу, если все тренировки выполнены"""
+    try:
+        if not user_training.user_program_id:
+            return False
+        
+        # Проверяем, есть ли активные тренировочные дни (is_rest_day=False)
+        active_trainings = await UserTrainingDAO.find_all(
+            user_program_id=user_training.user_program_id, 
+            status='ACTIVE', 
+            is_rest_day=False
+        )
+        
+        # Проверяем, есть ли вообще активные user_training (включая rest day)
+        active_any = await UserTrainingDAO.find_all(
+            user_program_id=user_training.user_program_id, 
+            status='ACTIVE'
+        )
+        
+        # Если нет ни одной активной тренировки, завершаем программу
+        if not active_trainings and not active_any:
+            user_program = await UserProgramDAO.find_one_or_none(id=user_training.user_program_id)
+            if not user_program:
+                return False
+            
+            # Переводим все blocked_yet тренировки (только не rest day) в passed
+            blocked_trainings = await UserTrainingDAO.find_all(
+                user_program_id=user_training.user_program_id, 
+                status='BLOCKED_YET', 
+                is_rest_day=False
+            )
+            for bt in blocked_trainings:
+                await UserTrainingDAO.update(bt.uuid, status='PASSED')
+            
+            # Переводим user_program в finished
+            await UserProgramDAO.update(
+                user_program.uuid, 
+                status='finished', 
+                stopped_at=datetime.now()
+            )
+            logger.info(f"Программа {user_program.uuid} переведена в статус 'finished'")
+            return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"Ошибка при завершении программы: {e}")
+        logger.error(traceback.format_exc())
+        return False
 
 
 async def create_next_stage_if_needed(user_training):
@@ -179,7 +230,8 @@ async def get_user_training_by_id(user_training_uuid: UUID, user_data = Depends(
     
     user_program = await UserProgramDAO.find_one_or_none(id=rez.user_program_id)
     program = await ProgramDAO.find_one_or_none(id=rez.program_id)
-    training = await TrainingDAO.find_one_or_none(id=rez.training_id)
+    # Используем оптимизированный метод для получения тренировки с предзагруженным image
+    training = await TrainingDAO.find_by_id_with_image(rez.training_id) if rez.training_id else None
     user = await UsersDAO.find_one_or_none(id=rez.user_id)
     
     data = rez.to_dict()
@@ -187,9 +239,9 @@ async def get_user_training_by_id(user_training_uuid: UUID, user_data = Depends(
     data.pop('program_id', None)
     data.pop('training_id', None)
     data.pop('user_id', None)
-    data['user_program'] = await user_program.to_dict() if user_program else None
-    data['program'] = await program.to_dict() if program else None
-    data['training'] = await training.to_dict() if training else None
+    data['user_program'] = user_program.to_dict() if user_program else None
+    data['program'] = program.to_dict() if program else None
+    data['training'] = training.to_dict() if training else None
     data['user'] = await user.to_dict() if user else None
     return data
 
@@ -264,6 +316,49 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
     training = await TrainingDAO.find_by_id_with_image(user_training_obj.training_id) if user_training_obj.training_id else None
     user = await UsersDAO.find_one_or_none(id=user_training_obj.user_id) if user_training_obj.user_id else None
     
+    # Отправляем FCM уведомление, если program_id отсутствует
+    if user_training_obj.program_id is None and training and user and user.fcm_token:
+        from app.logger import logger
+        from app.services.firebase_service import FirebaseService
+        
+        try:
+            # Определяем тип тренировки
+            training_type_value = training.training_type if hasattr(training, 'training_type') else None
+            
+            if training_type_value == 'userFree':
+                # Свободная тренировка
+                training_type = "userFree"
+                logger.info(f"📤 Отправляю уведомление о свободной тренировке для user_training {user_training_uuid}")
+            elif training_type_value in ('system_training', 'user'):
+                # Обычная тренировка
+                training_type = "system_training"
+                logger.info(f"📤 Отправляю уведомление об обычной тренировке для user_training {user_training_uuid}")
+            else:
+                # Если тип не определен, используем system_training по умолчанию
+                training_type = "system_training"
+                logger.info(f"📤 Отправляю уведомление о тренировке (тип не определен, используем system_training) для user_training {user_training_uuid}")
+            
+            # Инициализируем Firebase если не инициализирован
+            FirebaseService.initialize()
+            
+            # Отправляем уведомление
+            result = FirebaseService.send_workout_notification(
+                fcm_token=user.fcm_token,
+                user_training_uuid=str(user_training_uuid),
+                training_uuid=str(training.uuid),
+                training_type=training_type
+            )
+            
+            if result == True:
+                logger.info(f"✅ Уведомление о тренировке успешно отправлено для user_training {user_training_uuid}")
+            elif result == "INVALID_TOKEN":
+                logger.warning(f"⚠️ FCM токен невалиден для пользователя {user.uuid}")
+            else:
+                logger.error(f"❌ Не удалось отправить уведомление о тренировке для user_training {user_training_uuid}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке уведомления о тренировке: {e}", exc_info=True)
+            # Не прерываем выполнение, если уведомление не отправилось
+    
     data = user_training_obj.to_dict()
     data.pop('user_program_id', None)
     data.pop('program_id', None)
@@ -326,9 +421,9 @@ async def update_user_training(user_training_uuid: UUID, user_training: SUserTra
         data.pop('program_id', None)
         data.pop('training_id', None)
         data.pop('user_id', None)
-        data['user_program'] = await user_program.to_dict() if user_program else None
-        data['program'] = await program.to_dict() if program else None
-        data['training'] = await training.to_dict() if training else None
+        data['user_program'] = user_program.to_dict() if user_program else None
+        data['program'] = program.to_dict() if program else None
+        data['training'] = training.to_dict() if training else None
         data['user'] = await user.to_dict() if user else None
         return data
     else:
@@ -417,6 +512,33 @@ async def pass_user_training(
     
     logger.info(f"Статус тренировки {user_training_uuid} успешно обновлен на PASSED")
     
+    # Удаляем FCM уведомление о тренировке, если оно было отправлено (program_id отсутствует)
+    if user_training.program_id is None:
+        try:
+            from app.services.firebase_service import FirebaseService
+            
+            # Получаем пользователя для FCM токена
+            user = await UsersDAO.find_one_or_none(id=user_training.user_id)
+            if user and user.fcm_token:
+                # Инициализируем Firebase если не инициализирован
+                FirebaseService.initialize()
+                
+                # Удаляем уведомление
+                result = FirebaseService.cancel_workout_notification(
+                    fcm_token=user.fcm_token,
+                    user_training_uuid=str(user_training_uuid)
+                )
+                
+                if result == True:
+                    logger.info(f"✅ Уведомление о тренировке успешно удалено для user_training {user_training_uuid}")
+                elif result == "INVALID_TOKEN":
+                    logger.warning(f"⚠️ FCM токен невалиден при удалении уведомления для пользователя {user.uuid}")
+                else:
+                    logger.error(f"❌ Не удалось удалить уведомление о тренировке для user_training {user_training_uuid}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при удалении уведомления о тренировке: {e}", exc_info=True)
+            # Не прерываем выполнение, если уведомление не удалилось
+    
     # Добавляем +1 к score пользователя
     logger.info(f"Обновляю score пользователя {user_training.user_id}")
     user = await UsersDAO.find_one_or_none_by_id(user_training.user_id)
@@ -463,22 +585,41 @@ async def pass_user_training(
                         logger.info(f"[Background] Вызываю check_achievements_for_training...")
                         achievements = None
                         try:
+                            logger.info(f"[Background] ════════════════════════════════════════════════════")
+                            logger.info(f"[Background] НАЧАЛО проверки достижений для тренировки {user_training_uuid}")
+                            logger.info(f"[Background] ════════════════════════════════════════════════════")
                             achievements = await check_service.check_achievements_for_training(updated_training)
+                            logger.info(f"[Background] ════════════════════════════════════════════════════")
+                            logger.info(f"[Background] ЗАВЕРШЕНИЕ проверки достижений, функция вернула результат")
+                            logger.info(f"[Background] ════════════════════════════════════════════════════")
+                        except Exception as check_error:
+                            logger.error(f"[Background] ❌ ИСКЛЮЧЕНИЕ в check_achievements_for_training: {type(check_error).__name__}: {check_error}", exc_info=True)
+                            raise
                         finally:
                             # ВСЕГДА отключаем все объекты от сессии сразу после вызова функции
                             # Это предотвратит проблемы при закрытии сессии
-                            logger.info(f"[Background] Отключаю все объекты от сессии через expunge_all...")
+                            logger.info(f"[Background] ════════════════════════════════════════════════════")
+                            logger.info(f"[Background] БЛОК FINALLY: Начинаю отключение объектов от сессии")
+                            logger.info(f"[Background] ════════════════════════════════════════════════════")
                             try:
+                                logger.info(f"[Background] Вызываю session.expunge_all()...")
                                 session.expunge_all()
-                                logger.info(f"[Background] Все объекты отключены от сессии")
+                                logger.info(f"[Background] ✅ session.expunge_all() выполнен успешно")
                             except Exception as expunge_error:
-                                logger.warning(f"[Background] Ошибка при expunge_all (игнорирую): {expunge_error}")
+                                error_type = type(expunge_error).__name__
+                                error_msg = str(expunge_error)
+                                logger.warning(f"[Background] ⚠️ Ошибка при expunge_all: {error_type}: {error_msg}")
+                                logger.warning(f"[Background] Stack trace:", exc_info=True)
                         
                         # Логируем результат после expunge_all
+                        logger.info(f"[Background] ════════════════════════════════════════════════════")
+                        logger.info(f"[Background] РЕЗУЛЬТАТ проверки достижений:")
                         if achievements is not None:
-                            logger.info(f"[Background] Проверка достижений завершена, получено достижений: {len(achievements)}")
+                            logger.info(f"[Background]   - Получено достижений: {len(achievements)}")
+                            logger.info(f"[Background]   - Список: {[a.name if hasattr(a, 'name') else str(a) for a in achievements]}")
                         else:
-                            logger.info(f"[Background] Проверка достижений завершена")
+                            logger.info(f"[Background]   - achievements = None")
+                        logger.info(f"[Background] ════════════════════════════════════════════════════")
                     else:
                         logger.warning(f"[Background] Тренировка {user_training_uuid} не найдена для проверки достижений")
                     
@@ -502,30 +643,21 @@ async def pass_user_training(
     # Активируем следующую тренировку
     next_activated, next_training = await activate_next_training(user_training)
     
-    # Проверяем, нужно ли создавать следующий этап
-    next_stage_created, next_stage_info = await create_next_stage_if_needed(user_training)
+    # Проверяем, нужно ли завершить программу (если не осталось активных тренировок)
+    program_finished = await finish_program_if_completed(user_training)
     
     response = {
         "message": f"Тренировка {user_training.training_date} выполнена",
         "status": "passed",
         "training_date": user_training.training_date.isoformat(),
         "completed_at": current_time.isoformat(),
-        "next_training_activated": next_activated
+        "next_training_activated": next_activated,
+        "program_finished": program_finished
     }
     
     if next_activated and next_training:
         response["next_training_date"] = next_training.training_date.isoformat()
         response["next_training_uuid"] = str(next_training.uuid)
-    
-    if next_stage_created and next_stage_info:
-        response["next_stage_created"] = True
-        response["next_stage_info"] = next_stage_info
-        if "new_user_program_uuid" in next_stage_info:
-            response["new_user_program_uuid"] = next_stage_info["new_user_program_uuid"]
-        if "first_training_uuid" in next_stage_info:
-            response["first_training_uuid"] = next_stage_info["first_training_uuid"]
-    else:
-        response["next_stage_created"] = False
     
     return response
 
@@ -561,30 +693,21 @@ async def skip_user_training(user_training_uuid: UUID, user_data = Depends(get_c
     # Активируем следующую тренировку
     next_activated, next_training = await activate_next_training(user_training)
     
-    # Проверяем, нужно ли создавать следующий этап
-    next_stage_created, next_stage_info = await create_next_stage_if_needed(user_training)
+    # Проверяем, нужно ли завершить программу (если не осталось активных тренировок)
+    program_finished = await finish_program_if_completed(user_training)
     
     response = {
         "message": f"Тренировка {user_training.training_date} пропущена",
         "status": "skipped",
         "training_date": user_training.training_date.isoformat(),
         "skipped_at": current_time.isoformat(),
-        "next_training_activated": next_activated
+        "next_training_activated": next_activated,
+        "program_finished": program_finished
     }
     
     if next_activated and next_training:
         response["next_training_date"] = next_training.training_date.isoformat()
         response["next_training_uuid"] = str(next_training.uuid)
-    
-    if next_stage_created and next_stage_info:
-        response["next_stage_created"] = True
-        response["next_stage_info"] = next_stage_info
-        if "new_user_program_uuid" in next_stage_info:
-            response["new_user_program_uuid"] = next_stage_info["new_user_program_uuid"]
-        if "first_training_uuid" in next_stage_info:
-            response["first_training_uuid"] = next_stage_info["first_training_uuid"]
-    else:
-        response["next_stage_created"] = False
     
     return response
 

@@ -61,6 +61,29 @@ class FoodRecognitionService:
                 
                 logger.info(f"Ответ от сервиса: статус {response.status_code}")
                 
+                # Парсим ответ как JSON
+                try:
+                    result = response.json()
+                except json.JSONDecodeError:
+                    # Если не JSON, обрабатываем как обычную ошибку
+                    logger.error(f"Ошибка от сервиса (не JSON): {response.text}")
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Ошибка сервиса распознавания: {response.status_code}"
+                    )
+                
+                # Проверяем, есть ли ошибка в ответе
+                if result.get("error") is True:
+                    # Это ошибка от сервиса (например, "not_food")
+                    logger.info(f"Ошибка от сервиса распознавания: {json.dumps(result, ensure_ascii=False)}")
+                    # Возвращаем ответ сервиса как есть, но с соответствующим статус-кодом
+                    # Используем 400 для ошибок распознавания (not_food и т.д.)
+                    error_status = status.HTTP_400_BAD_REQUEST if response.status_code == 400 else status.HTTP_502_BAD_GATEWAY
+                    raise HTTPException(
+                        status_code=error_status,
+                        detail=result
+                    )
+                
                 if response.status_code != 200:
                     logger.error(f"Ошибка от сервиса: {response.text}")
                     raise HTTPException(
@@ -68,11 +91,13 @@ class FoodRecognitionService:
                         detail=f"Ошибка сервиса распознавания: {response.status_code}"
                     )
                 
-                result = response.json()
                 logger.info(f"Результат распознавания: {json.dumps(result, ensure_ascii=False, indent=2)}")
                 
                 return result
                 
+        except HTTPException:
+            # Пробрасываем HTTPException дальше, чтобы она была правильно обработана
+            raise
         except httpx.TimeoutException:
             logger.error("Таймаут при запросе к сервису распознавания")
             raise HTTPException(

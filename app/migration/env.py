@@ -31,6 +31,7 @@ from app.achievements.models import Achievement, AchievementType
 from app.password_reset.models import PasswordResetCode
 from app.user_measurements.models import UserMeasurementType, UserMeasurement
 from app.subscriptions.models import SubscriptionPlan, Payment, Subscription
+from app.promo_codes.models import PromoCode
 from app.recipes.models import Recipe
 from app.user_favorite_recipes.models import UserFavoriteRecipe
 from app.food_recognition.models import FoodRecognition
