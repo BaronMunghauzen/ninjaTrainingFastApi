@@ -17,6 +17,7 @@ class SExerciseReference(BaseModel):
     image_uuid: Optional[str] = Field(None, description="UUID изображения (files)")
     video_uuid: Optional[str] = Field(None, description="UUID видео (files)")
     gif_uuid: Optional[str] = Field(None, description="UUID гифки (files)")
+    is_favorite: Optional[bool] = Field(False, description="Находится ли упражнение в избранном у текущего пользователя")
     created_at: Optional[datetime] = Field(None, description="Дата создания")
     updated_at: Optional[datetime] = Field(None, description="Дата обновления")
 

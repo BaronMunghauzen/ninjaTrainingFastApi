@@ -27,6 +27,10 @@ async def get_all_exercise_references(
     if page == 0 or size == 0:
         exercises = await ExerciseReferenceDAO.find_all(**filters)
         items = [e.to_dict() for e in exercises]
+        # Добавляем is_favorite к каждому упражнению
+        favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+        for exercise, item in zip(exercises, items):
+            item['is_favorite'] = exercise.id in favorite_ids
         return SPaginationResponse(
             items=items,
             total=len(items),
@@ -44,6 +48,10 @@ async def get_all_exercise_references(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
+    # Добавляем is_favorite к каждому упражнению
+    favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+    for exercise, item in zip(result["items"], items):
+        item['is_favorite'] = exercise.id in favorite_ids
     
     return SPaginationResponse(
         items=items,
@@ -85,6 +93,10 @@ async def search_exercise_reference_by_caption(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
+    # Добавляем is_favorite к каждому упражнению
+    favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+    for exercise, item in zip(result["items"], items):
+        item['is_favorite'] = exercise.id in favorite_ids
     
     return SPaginationResponse(
         items=items,
@@ -125,6 +137,10 @@ async def get_available_exercises(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
+    # Добавляем is_favorite к каждому упражнению
+    favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user.id)
+    for exercise, item in zip(result["items"], items):
+        item['is_favorite'] = exercise.id in favorite_ids
     
     return SPaginationResponse(
         items=items,
@@ -179,6 +195,10 @@ async def search_available_exercises_by_caption(
     
     # Преобразуем объекты в словари для ответа
     items = [e.to_dict() for e in result["items"]]
+    # Добавляем is_favorite к каждому упражнению
+    favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user.id)
+    for exercise, item in zip(result["items"], items):
+        item['is_favorite'] = exercise.id in favorite_ids
     
     return SPaginationResponse(
         items=items,
@@ -238,7 +258,11 @@ async def get_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data 
     rez = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
     if rez is None:
         return {'message': f'Упражнение справочника с ID {exercise_reference_uuid} не найдено!'}
-    return rez.to_dict()
+    result = rez.to_dict()
+    # Добавляем is_favorite
+    is_fav = await UserFavoriteExerciseDAO.is_favorite(user_data.id, rez.id)
+    result['is_favorite'] = is_fav
+    return result
 
 @router.post('/add/', summary='Создать упражнение справочника')
 async def add_exercise_reference(exercise: SExerciseReferenceAdd, user_data = Depends(get_current_user_user)) -> dict:
@@ -618,6 +642,9 @@ async def get_passed_exercise_references(
         if not exercises:
             return []
         
+        # Получаем все избранные ID для оптимизации
+        favorite_ids = await UserFavoriteExerciseDAO.get_user_favorite_exercise_ids(user_data.id)
+        
         result = []
         for exercise in exercises:
             try:
@@ -627,7 +654,8 @@ async def get_passed_exercise_references(
                     'caption': exercise.caption,
                     'description': exercise.description,
                     'muscle_group': exercise.muscle_group,
-                    'gif_uuid': str(exercise.gif.uuid) if exercise.gif else None
+                    'gif_uuid': str(exercise.gif.uuid) if exercise.gif else None,
+                    'is_favorite': exercise.id in favorite_ids
                 }
                 
                 result.append(data)
