@@ -291,17 +291,13 @@ class ExerciseReferenceDAO(BaseDAO):
                     count_query = count_query.filter(caption_filter)
                     data_query = data_query.filter(caption_filter)
             
-            # Добавляем фильтр по группам мышц если они переданы
+            # Добавляем фильтр по группам мышц если они переданы (только по основной группе мышц)
             if muscle_groups_filter and len(muscle_groups_filter) > 0:
                 from sqlalchemy import or_
-                muscle_conditions = []
-                for muscle_group in muscle_groups_filter:
-                    muscle_conditions.append(
-                        or_(
-                            func.lower(cls.model.muscle_group).like(f"%{muscle_group.lower()}%"),
-                            func.lower(cls.model.auxiliary_muscle_groups).like(f"%{muscle_group.lower()}%")
-                        )
-                    )
+                muscle_conditions = [
+                    func.lower(cls.model.muscle_group).like(f"%{muscle_group.lower()}%")
+                    for muscle_group in muscle_groups_filter
+                ]
                 muscle_filter = or_(*muscle_conditions)
                 count_query = count_query.filter(muscle_filter)
                 data_query = data_query.filter(muscle_filter)
