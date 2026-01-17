@@ -35,7 +35,19 @@ def upgrade() -> None:
     op.execute("ALTER TABLE last_values DROP CONSTRAINT IF EXISTS last_values_uuid_key")
     op.drop_index(op.f('ix_last_values_uuid'), table_name='last_values')
     op.create_index(op.f('ix_last_values_uuid'), 'last_values', ['uuid'], unique=True)
-    op.create_unique_constraint('uq_last_values_user_code', 'last_values', ['user_id', 'code'])
+    # Создаем constraint только если его нет
+    op.execute("""
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint 
+                WHERE conname = 'uq_last_values_user_code' 
+                AND conrelid = 'last_values'::regclass
+            ) THEN
+                ALTER TABLE last_values ADD CONSTRAINT uq_last_values_user_code UNIQUE (user_id, code);
+            END IF;
+        END $$;
+    """)
     op.add_column('meal_plans', sa.Column('use_all_recipes', sa.Boolean(), server_default=sa.text('false'), nullable=False))
     op.add_column('meal_plans', sa.Column('target_nutrition', sa.Text(), nullable=True))
     op.add_column('meal_plans', sa.Column('response_data', sa.Text(), nullable=True))
