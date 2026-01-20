@@ -16,6 +16,20 @@ from app.logger import logger
 
 router = APIRouter(prefix='/api/food-progress', tags=['Прогресс по еде'])
 
+
+class DefaultTarget:
+    """Класс для дефолтных значений целевых уровней КБЖУ (все нули)"""
+    target_calories = 0.0
+    target_proteins = 0.0
+    target_fats = 0.0
+    target_carbs = 0.0
+
+
+def get_target_or_default(target):
+    """Возвращает target или DefaultTarget, если target отсутствует"""
+    return target if target else DefaultTarget()
+
+
 # ==================== DailyTarget методы ====================
 
 @router.get("/targets/", summary="Получить все целевые уровни")
@@ -213,10 +227,8 @@ async def add_meal(
 ) -> dict:
     """Создать новый прием пищи"""
     try:
-        # Получаем последний актуальный целевой уровень
-        target = await DailyTargetDAO.find_last_actual(user_data.id)
-        if not target:
-            raise HTTPException(status_code=400, detail="Сначала установите целевые уровни КБЖУ")
+        # Получаем последний актуальный целевой уровень или используем нули по умолчанию
+        target = get_target_or_default(await DailyTargetDAO.find_last_actual(user_data.id))
         
         # Получаем сумму съеденного за день
         meal_date = meal.meal_datetime.date()
@@ -281,9 +293,7 @@ async def update_meal(
         
         # Получаем дату для пересчета остатков
         meal_date = existing.meal_datetime.date()
-        target = await DailyTargetDAO.find_last_actual(user_data.id)
-        if not target:
-            raise HTTPException(status_code=400, detail="Сначала установите целевые уровни КБЖУ")
+        target = get_target_or_default(await DailyTargetDAO.find_last_actual(user_data.id))
         
         update_data = meal.model_dump(exclude_unset=True)
         await MealDAO.update(meal_uuid, **update_data)
@@ -312,12 +322,11 @@ async def deactivate_meal(
             raise HTTPException(status_code=403, detail="Нет доступа")
         
         meal_date = existing.meal_datetime.date()
-        target = await DailyTargetDAO.find_last_actual(user_data.id)
+        target = get_target_or_default(await DailyTargetDAO.find_last_actual(user_data.id))
         
         await MealDAO.update(meal_uuid, actual=False)
         
-        if target:
-            await _recalculate_day_remainders(user_data.id, meal_date, target)
+        await _recalculate_day_remainders(user_data.id, meal_date, target)
         
         return {"message": "Прием пищи деактуализирован", "uuid": str(meal_uuid)}
     except HTTPException:
@@ -339,9 +348,7 @@ async def activate_meal(
             raise HTTPException(status_code=403, detail="Нет доступа")
         
         meal_date = existing.meal_datetime.date()
-        target = await DailyTargetDAO.find_last_actual(user_data.id)
-        if not target:
-            raise HTTPException(status_code=400, detail="Сначала установите целевые уровни КБЖУ")
+        target = get_target_or_default(await DailyTargetDAO.find_last_actual(user_data.id))
         
         await MealDAO.update(meal_uuid, actual=True)
         
@@ -367,12 +374,11 @@ async def delete_meal(
             raise HTTPException(status_code=403, detail="Нет доступа")
         
         meal_date = existing.meal_datetime.date()
-        target = await DailyTargetDAO.find_last_actual(user_data.id)
+        target = get_target_or_default(await DailyTargetDAO.find_last_actual(user_data.id))
         
         await MealDAO.delete_by_id(meal_uuid)
         
-        if target:
-            await _recalculate_day_remainders(user_data.id, meal_date, target)
+        await _recalculate_day_remainders(user_data.id, meal_date, target)
         
         return {"message": f"Прием пищи с UUID {meal_uuid} удален"}
     except HTTPException:
@@ -391,10 +397,8 @@ async def get_daily_progress(
     Получить прогресс за день: сколько съедено, целевые уровни, остатки
     """
     try:
-        # Получаем целевые уровни
-        target = await DailyTargetDAO.find_last_actual(user_data.id)
-        if not target:
-            raise HTTPException(status_code=400, detail="Сначала установите целевые уровни КБЖУ")
+        # Получаем целевые уровни или используем нули по умолчанию
+        target = get_target_or_default(await DailyTargetDAO.find_last_actual(user_data.id))
         
         # Получаем суммарное количество съеденного за день
         daily_totals = await MealDAO.get_daily_totals(user_data.id, target_date)
