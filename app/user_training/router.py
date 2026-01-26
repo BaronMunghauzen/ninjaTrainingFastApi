@@ -13,6 +13,8 @@ from app.user_program.dao import UserProgramDAO
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
 from app.users.dao import UsersDAO
+from app.user_exercises.dao import UserExerciseDAO
+from app.user_exercises.models import ExerciseStatus
 from app.services.schedule_generator import ScheduleGenerator
 from app.logger import logger
 
@@ -511,6 +513,29 @@ async def pass_user_training(
         raise HTTPException(status_code=500, detail="Ошибка при обновлении статуса тренировки")
     
     logger.info(f"Статус тренировки {user_training_uuid} успешно обновлен на PASSED")
+    
+    # Обновляем статус всех связанных user_exercise на PASSED
+    if user_training.training_id is not None:
+        logger.info(f"Ищу связанные user_exercise с training_id={user_training.training_id} и status=ACTIVE")
+        active_exercises = await UserExerciseDAO.find_all(
+            training_id=user_training.training_id,
+            status=ExerciseStatus.ACTIVE
+        )
+        
+        if active_exercises:
+            logger.info(f"Найдено {len(active_exercises)} активных подходов для обновления статуса")
+            updated_count = 0
+            for exercise in active_exercises:
+                update_result = await UserExerciseDAO.update(exercise.uuid, status=ExerciseStatus.PASSED)
+                if update_result:
+                    updated_count += 1
+                else:
+                    logger.warning(f"Не удалось обновить статус user_exercise {exercise.uuid}")
+            logger.info(f"Успешно обновлено {updated_count} из {len(active_exercises)} подходов на статус PASSED")
+        else:
+            logger.info(f"Не найдено активных подходов для training_id={user_training.training_id}")
+    else:
+        logger.info(f"У тренировки {user_training_uuid} отсутствует training_id, пропускаю обновление user_exercise")
     
     # Удаляем FCM уведомление о тренировке, если оно было отправлено (program_id отсутствует)
     if user_training.program_id is None:

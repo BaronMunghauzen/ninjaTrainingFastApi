@@ -11,6 +11,9 @@ from app.password_reset.schemas import (
 from app.users.dao import UsersDAO
 from app.users.auth import get_password_hash
 from app.email_service import email_service
+from app.users.models import User
+from app.database import async_session_maker
+from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +25,14 @@ async def forgot_password(request: PasswordResetRequest):
     """Запрос на сброс пароля"""
     logger.info(f"Запрос сброса пароля для email: {request.email}")
     
-    # Проверяем, существует ли пользователь с таким email
-    user = await UsersDAO.find_one_or_none(email=request.email)
+    # Проверяем, существует ли пользователь с таким email (case-insensitive)
+    user = None
+    async with async_session_maker() as session:
+        stmt = select(User).where(func.lower(User.email) == func.lower(request.email))
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user:
+            session.expunge(user)
     if not user:
         # Для безопасности не сообщаем, что пользователь не найден
         logger.warning(f"Попытка сброса пароля для несуществующего email: {request.email}")

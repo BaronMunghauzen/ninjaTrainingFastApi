@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 from typing import Optional
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from app.database import async_session_maker
 from app.password_reset.models import PasswordResetCode
+from app.users.models import User
 import secrets
 import logging
 
@@ -33,9 +34,9 @@ class PasswordResetDAO:
     async def find_valid_code(email: str, code: str) -> Optional[PasswordResetCode]:
         """Найти действительный код сброса пароля"""
         async with async_session_maker() as session:
-            stmt = select(PasswordResetCode).join(PasswordResetCode.user).where(
+            stmt = select(PasswordResetCode).join(User).where(
                 and_(
-                    PasswordResetCode.user.has(email=email),
+                    func.lower(User.email) == func.lower(email),
                     PasswordResetCode.code == code,
                     PasswordResetCode.used == False,
                     PasswordResetCode.expires_at > datetime.utcnow()
