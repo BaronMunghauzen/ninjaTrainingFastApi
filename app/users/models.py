@@ -73,6 +73,12 @@ class User(Base):
     # FCM токен для push-уведомлений
     fcm_token: Mapped[str | None] = mapped_column(nullable=True)
     
+    # Включены ли email уведомления
+    email_notifications_enabled: Mapped[bool | None] = mapped_column(nullable=True)
+    
+    # Время последнего входа
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    
     # Рейтинг пользователя
     score: Mapped[int] = mapped_column(default=0, server_default=text('0'), nullable=False)
 
@@ -160,6 +166,10 @@ class User(Base):
             "trial_started_at": self.trial_started_at.isoformat() if self.trial_started_at else None,
             # Добавляем FCM токен
             "fcm_token": self.fcm_token,
+            # Добавляем настройку email уведомлений
+            "email_notifications_enabled": self.email_notifications_enabled,
+            # Добавляем время последнего входа
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
             # Добавляем рейтинг
             "score": self.score,
         }

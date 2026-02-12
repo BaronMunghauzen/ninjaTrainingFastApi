@@ -28,3 +28,6 @@ class SUserFavoriteRecipe(BaseModel):
 
 
 
+
+
+

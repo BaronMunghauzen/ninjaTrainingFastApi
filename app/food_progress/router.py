@@ -202,6 +202,35 @@ async def get_all_meals(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/meals/search/", summary="Поиск приемов пищи по названию")
+async def search_meals_by_name(
+    query: str = Query(..., description="Строка поиска (подстроки разделены пробелом)"),
+    user_data: User = Depends(get_current_user_user),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    size: int = Query(20, ge=1, le=100, description="Размер страницы")
+) -> dict:
+    """
+    Поиск приемов пищи по названию.
+    Поиск выполняется по вхождению подстрок, разделенных пробелом, без учета регистра.
+    Все подстроки должны присутствовать в названии приема пищи.
+    """
+    try:
+        result = await MealDAO.search_by_name(
+            user_id=user_data.id,
+            search_query=query,
+            page=page,
+            size=size
+        )
+        
+        return {
+            "items": [m.to_dict() for m in result["items"]],
+            "pagination": result["pagination"]
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при поиске приемов пищи: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/meals/{meal_uuid}", summary="Получить прием пищи по UUID")
 async def get_meal_by_uuid(
     meal_uuid: UUID,

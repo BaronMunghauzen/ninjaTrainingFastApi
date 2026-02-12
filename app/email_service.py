@@ -144,6 +144,52 @@ class EmailService:
             logger.error(f"Ошибка отправки обращения от пользователя {user_email}: {str(e)}")
             raise e
 
+    async def send_broadcast_email(self, recipients: list[str], subject: str, body: str):
+        """Отправить массовую рассылку email нескольким получателям"""
+        logger.info(f"Начинаем массовую рассылку email на {len(recipients)} адресов")
+        
+        # Форматируем body как HTML если это еще не HTML
+        html_body = body
+        if not body.strip().startswith('<'):
+            # Если body не начинается с HTML тега, оборачиваем в простой HTML
+            html_body = f"""
+            <html>
+            <body>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    {body.replace(chr(10), '<br>')}
+                </div>
+            </body>
+            </html>
+            """
+        
+        success_count = 0
+        failed_count = 0
+        failed_emails = []
+        
+        for email in recipients:
+            try:
+                message = MessageSchema(
+                    subject=subject,
+                    recipients=[email],
+                    body=html_body,
+                    subtype="html"
+                )
+                await self.fm.send_message(message)
+                success_count += 1
+                logger.info(f"Email успешно отправлен на {email}")
+            except Exception as e:
+                failed_count += 1
+                failed_emails.append(email)
+                logger.error(f"Ошибка отправки email на {email}: {str(e)}")
+        
+        logger.info(f"Массовая рассылка завершена: успешно {success_count}, ошибок {failed_count}")
+        
+        return {
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "failed_emails": failed_emails
+        }
+
 
 # Создаем экземпляр сервиса
 logger.info("Создание экземпляра EmailService...")

@@ -3,7 +3,7 @@ API роутер для работы с промокодами
 """
 
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List
 
 from app.users.dependencies import get_current_admin_user
@@ -12,20 +12,31 @@ from app.promo_codes.dao import PromoCodeDAO
 from app.promo_codes.schemas import (
     SPromoCodeResponse,
     SPromoCodeAdd,
-    SPromoCodeUpdate
+    SPromoCodeUpdate,
+    SPromoCodeListResponse
 )
 
 router = APIRouter(prefix='/api/promo_codes', tags=['Promo Codes'])
 
 
-@router.get("/", response_model=List[SPromoCodeResponse])
-async def get_all_promo_codes(admin: User = Depends(get_current_admin_user)):
+@router.get("/", response_model=SPromoCodeListResponse)
+async def get_all_promo_codes(
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    size: int = Query(20, ge=1, le=100, description="Размер страницы"),
+    admin: User = Depends(get_current_admin_user)
+):
     """
-    Получить список всех промокодов (только для админов)
+    Получить список всех промокодов с пагинацией и сортировкой по дате создания (только для админов)
     """
     try:
-        promo_codes = await PromoCodeDAO.find_all()
-        return promo_codes
+        result = await PromoCodeDAO.find_all_paginated(page=page, size=size)
+        return SPromoCodeListResponse(
+            items=[SPromoCodeResponse.model_validate(item) for item in result["items"]],
+            total=result["total"],
+            page=result["page"],
+            size=result["size"],
+            pages=result["pages"]
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -146,7 +157,10 @@ async def delete_promo_code(
     admin: User = Depends(get_current_admin_user)
 ):
     """
-    Удалить промокод (только для админов)
+    Удалить промокод (мягкое удаление - устанавливает actual=False) (только для админов)
+    
+    Используется мягкое удаление вместо физического, чтобы сохранить историю использования
+    промокода в платежах и не нарушить целостность данных.
     """
     try:
         # Проверяем существование промокода
@@ -157,10 +171,17 @@ async def delete_promo_code(
                 detail="Промокод не найден"
             )
         
-        # Удаляем промокод
-        await PromoCodeDAO.delete_by_id(promo_code_uuid)
+        # Проверяем, не удален ли уже промокод
+        if not existing.actual:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Промокод уже удален (неактуален)"
+            )
         
-        return {"message": "Промокод успешно удален"}
+        # Выполняем мягкое удаление - устанавливаем actual=False
+        await PromoCodeDAO.update(promo_code_uuid, actual=False)
+        
+        return {"message": "Промокод успешно удален (деактивирован)"}
     except HTTPException:
         raise
     except Exception as e:

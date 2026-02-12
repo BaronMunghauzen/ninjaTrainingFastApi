@@ -61,3 +61,8 @@ class SUserResponse(BaseModel):
     email_verification_sent_at: Optional[datetime] = Field(None, description="Время отправки подтверждения email")
     avatar_uuid: Optional[str] = Field(None, description="UUID аватара")
     score: int = Field(..., description="Рейтинг пользователя")
+
+
+class BroadcastEmailRequest(BaseModel):
+    subject: str = Field(..., min_length=1, description="Тема письма")
+    body: str = Field(..., min_length=1, description="Текст письма (может быть HTML)")

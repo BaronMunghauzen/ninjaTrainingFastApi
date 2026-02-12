@@ -70,3 +70,7 @@ class UserFavoriteExercise(Base):
 
 
 
+
+
+
+

@@ -2,6 +2,7 @@ from uuid import UUID
 import secrets
 import logging
 from datetime import datetime, timedelta
+from typing import Optional, Literal
 
 from fastapi import APIRouter, HTTPException, status, Response, Depends, Query, UploadFile, File
 from fastapi.responses import FileResponse
@@ -9,7 +10,7 @@ from app.users.auth import get_password_hash, authenticate_user, create_access_t
 from app.users.dao import UsersDAO
 from app.users.dependencies import get_current_user, get_current_admin_user, get_current_user_user
 from app.users.models import User
-from app.users.schemas import SUserRegister, SUserAuth, SUserUpdate
+from app.users.schemas import SUserRegister, SUserAuth, SUserUpdate, BroadcastEmailRequest
 from app.email_verification.dao import EmailVerificationDAO
 from app.email_service import email_service
 from app.telegram_service import telegram_service
@@ -145,6 +146,15 @@ async def auth_user(response: Response, user_data: SUserAuth):
 
 @router.get("/me/")
 async def get_me(user_data: User = Depends(get_current_user)):
+    """Получить информацию о текущем пользователе и обновить время последнего входа"""
+    # Обновляем время последнего входа
+    await UsersDAO.update(user_data.uuid, last_login_at=datetime.utcnow())
+    
+    # Обновляем объект user_data для возврата актуальных данных
+    updated_user = await UsersDAO.find_one_or_none(uuid=user_data.uuid)
+    if updated_user:
+        return await updated_user.to_dict()
+    
     return await user_data.to_dict()
 
 
@@ -166,9 +176,39 @@ async def logout_user(response: Response):
     return {'message': 'Пользователь успешно вышел из системы'}
 
 
-@router.get("/all_users/")
-async def get_all_users(user_data: User = Depends(get_current_admin_user)):
-    return await UsersDAO.find_all()
+@router.get("/all_users/", summary="Получить всех пользователей с пагинацией и сортировкой")
+async def get_all_users(
+    user_data: User = Depends(get_current_admin_user),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    size: int = Query(20, ge=1, le=100, description="Размер страницы"),
+    sort_by: Optional[str] = Query(None, description="Поле для сортировки (id, login, email, first_name, last_name, etc.)"),
+    sort_order: Literal["asc", "desc"] = Query("asc", description="Порядок сортировки (asc или desc)"),
+    actual: Optional[bool] = Query(None, description="Фильтр по актуальности пользователя"),
+    email_verified: Optional[bool] = Query(None, description="Фильтр по подтверждению email"),
+    email_notifications_enabled: Optional[bool] = Query(None, description="Фильтр по включенным email уведомлениям")
+) -> dict:
+    """Получить всех пользователей с пагинацией и сортировкой (только для администраторов)"""
+    # Формируем фильтры
+    filters = {}
+    if actual is not None:
+        filters['actual'] = actual
+    if email_verified is not None:
+        filters['email_verified'] = email_verified
+    if email_notifications_enabled is not None:
+        filters['email_notifications_enabled'] = email_notifications_enabled
+    
+    result = await UsersDAO.find_all_paginated(
+        page=page,
+        size=size,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        **filters
+    )
+    
+    return {
+        "items": [await user.to_dict() for user in result["items"]],
+        "pagination": result["pagination"]
+    }
 
 @router.put("/update/{user_uuid}")
 async def update_user(user_uuid: UUID, user: SUserUpdate, user_data: User = Depends(get_current_user_user)) -> dict:
@@ -411,5 +451,86 @@ async def delete_avatar(
     await UsersDAO.update(current_user.uuid, avatar_id=None)
     
     return {"message": "Аватар успешно удален"}
+
+
+@router.post("/toggle-email-notifications/{user_uuid}", summary="Переключить email уведомления")
+async def toggle_email_notifications(
+    user_uuid: UUID,
+    admin_user: User = Depends(get_current_admin_user)
+) -> dict:
+    """Переключить статус email уведомлений для пользователя (только для администраторов)"""
+    # Находим пользователя, для которого нужно изменить настройки
+    target_user = await UsersDAO.find_one_or_none(uuid=user_uuid)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь не найден"
+        )
+    
+    # Получаем текущее значение или устанавливаем True по умолчанию
+    current_value = target_user.email_notifications_enabled
+    new_value = not current_value if current_value is not None else True
+    
+    # Обновляем значение
+    await UsersDAO.update(user_uuid, email_notifications_enabled=new_value)
+    
+    return {
+        "message": "Настройки email уведомлений обновлены",
+        "email_notifications_enabled": new_value,
+        "user_uuid": str(user_uuid)
+    }
+
+
+@router.post("/broadcast-email/", summary="Массовая рассылка email (только для администраторов)")
+async def broadcast_email(
+    request: BroadcastEmailRequest,
+    admin_user: User = Depends(get_current_admin_user)
+) -> dict:
+    """Отправить email всем пользователям с включенными email уведомлениями"""
+    try:
+        # Находим всех пользователей с включенными email уведомлениями и actual = True
+        users = await UsersDAO.find_users_with_email_notifications_enabled()
+        
+        logger.info(f"Найдено пользователей с включенными email уведомлениями: {len(users)}")
+        
+        if not users:
+            return {
+                "message": "Нет пользователей с включенными email уведомлениями",
+                "sent_count": 0,
+                "total_users": 0
+            }
+        
+        # Собираем список email адресов
+        recipients = [user.email for user in users if user.email]
+        logger.info(f"Список получателей: {recipients}")
+        
+        if not recipients:
+            return {
+                "message": "Не найдено email адресов для рассылки",
+                "sent_count": 0,
+                "total_users": len(users)
+            }
+        
+        # Отправляем массовую рассылку
+        result = await email_service.send_broadcast_email(
+            recipients=recipients,
+            subject=request.subject,
+            body=request.body
+        )
+        
+        return {
+            "message": "Массовая рассылка email выполнена",
+            "total_users": len(users),
+            "success_count": result["success_count"],
+            "failed_count": result["failed_count"],
+            "failed_emails": result["failed_emails"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка при массовой рассылке email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при отправке рассылки: {str(e)}"
+        )
 
 

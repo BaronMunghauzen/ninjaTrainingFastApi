@@ -10,6 +10,7 @@ from app.achievements.dao import AchievementTypeDAO, AchievementDAO
 from app.users.dao import UsersDAO
 from app.users.dependencies import get_current_admin_user
 from app.files.service import FileService
+from app.logger import logger
 from typing import List
 from uuid import UUID
 import uuid
@@ -283,16 +284,27 @@ async def upload_achievement_type_image(
     if not achievement_type:
         raise HTTPException(status_code=404, detail="Тип достижения не найден")
     
+    # Сохраняем информацию о старом файле перед обновлением
     old_file_uuid = getattr(achievement_type.image, 'uuid', None) if achievement_type.image else None
     
+    # Сохраняем новый файл (без удаления старого)
     saved_file = await FileService.save_file(
         file=file,
         entity_type="achievement_type",
         entity_id=achievement_type.id,
-        old_file_uuid=str(old_file_uuid) if old_file_uuid else None
+        old_file_uuid=None  # Не удаляем старый файл здесь
     )
     
+    # Обновляем image_id у типа достижения на новый файл
     await AchievementTypeDAO.update(UUID(achievement_type_uuid), image_id=saved_file.id)
+    
+    # Теперь удаляем старый файл, если он был
+    if old_file_uuid:
+        try:
+            await FileService.delete_file_by_uuid(str(old_file_uuid))
+        except Exception as e:
+            # Логируем ошибку, но не прерываем выполнение, так как новый файл уже сохранен
+            logger.warning(f"Не удалось удалить старый файл {old_file_uuid}: {e}")
     
     return {"message": "Изображение успешно загружено", "image_uuid": str(saved_file.uuid)}
 

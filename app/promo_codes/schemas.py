@@ -36,3 +36,11 @@ class SPromoCodeUpdate(BaseModel):
     discount_percent: Optional[float] = Field(None, description="Размер скидки в процентах", ge=0, le=100)
     actual: Optional[bool] = Field(None, description="Актуален ли промокод")
 
+
+class SPromoCodeListResponse(BaseModel):
+    """Схема ответа со списком промокодов с пагинацией"""
+    items: list[SPromoCodeResponse] = Field(..., description="Список промокодов")
+    total: int = Field(..., description="Общее количество промокодов")
+    page: int = Field(..., description="Номер текущей страницы")
+    size: int = Field(..., description="Размер страницы")
+    pages: int = Field(..., description="Общее количество страниц")
