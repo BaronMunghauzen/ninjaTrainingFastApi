@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 # Import UserFavoriteExercise BEFORE ExerciseReference to ensure it's registered first
 from app.user_favorite_exercises.models import UserFavoriteExercise  # noqa: F401
 from app.exercise_reference.models import ExerciseReference  # noqa: F401
+from app.anonymous_session.models import AnonymousSession  # noqa: F401
 
 from app.users.router import router as router_users
 from app.categories.router import router as router_categories
@@ -35,6 +36,12 @@ from app.recipes.router import router as router_recipes
 from app.calorie_calculator.router import router as router_calorie_calculator
 from app.food_progress.router import router as router_food_progress
 from app.meal_plans.router import router as router_meal_plans
+from app.training_composition_rules.router import router as router_training_composition_rules
+from app.exercise_builder_pool.router import router as router_exercise_builder_pool
+from app.exercise_builder_equipment.router import router as router_exercise_builder_equipment
+from app.user_program_plan.router import router as router_user_program_plan
+from app.public_training.router import router as router_public_training
+from app.user_selected_trainings.router import router as router_user_selected_trainings
 from app.logger import logger
 from pydantic import EmailStr
 from app.email_service import email_service
@@ -565,6 +572,12 @@ app.include_router(router_recipes)
 app.include_router(router_calorie_calculator)
 app.include_router(router_food_progress)
 app.include_router(router_meal_plans)
+app.include_router(router_training_composition_rules)
+app.include_router(router_exercise_builder_pool)
+app.include_router(router_exercise_builder_equipment)
+app.include_router(router_user_program_plan)
+app.include_router(router_public_training)
+app.include_router(router_user_selected_trainings)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

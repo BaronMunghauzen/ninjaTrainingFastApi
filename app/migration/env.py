@@ -39,6 +39,12 @@ from app.meal_plans.models import MealPlan
 from app.calorie_calculator.models import CalorieCalculation
 from app.food_progress.models import DailyTarget, Meal
 from app.last_values.models import LastValue
+from app.training_composition_rules.models import TrainingCompositionRule
+from app.exercise_builder_pool.models import ExerciseBuilderPool
+from app.exercise_builder_equipment.models import ExerciseBuilderEquipment
+from app.user_program_plan.models import UserProgramPlan
+from app.user_exercise_stats.models import UserExerciseStats
+from app.anonymous_session.models import AnonymousSession
 
 
 

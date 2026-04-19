@@ -1,17 +1,23 @@
 from app.user_exercises.models import ExerciseStatus
 from datetime import date
+from fastapi import Query
+
 
 class RBUserExercise:
-    def __init__(self, user_exercise_uuid: str | None = None,
-                 program_uuid: str | None = None,
-                 training_uuid: str | None = None,
-                 user_uuid: str | None = None,
-                 exercise_uuid: str | None = None,
-                 training_date: str | None = None,
-                 status: ExerciseStatus | None = None,
-                 set_number: int | None = None,
-                 weight: float | None = None,
-                 reps: int | None = None):
+    def __init__(
+        self,
+        user_exercise_uuid: str | None = None,
+        program_uuid: str | None = None,
+        training_uuid: str | None = None,
+        user_uuid: str | None = None,
+        exercise_uuid: str | None = None,
+        training_date: str | None = None,
+        status: ExerciseStatus | None = None,
+        set_number: int | None = None,
+        weight: float | None = None,
+        reps: int | None = None,
+        duration_seconds: int | None = Query(None, description="Фильтр по длительности подхода (сек)"),
+    ):
         self.uuid = user_exercise_uuid
         self.program_uuid = program_uuid
         self.training_uuid = training_uuid
@@ -28,6 +34,7 @@ class RBUserExercise:
         self.set_number = set_number
         self.weight = weight
         self.reps = reps
+        self.duration_seconds = duration_seconds
 
     def to_dict(self) -> dict:
         data = {
@@ -40,7 +47,8 @@ class RBUserExercise:
             'status': self.status,
             'set_number': self.set_number,
             'weight': self.weight,
-            'reps': self.reps
+            'reps': self.reps,
+            'duration_seconds': self.duration_seconds,
         }
         filtered_data = {key: value for key, value in data.items() if value is not None}
         return filtered_data

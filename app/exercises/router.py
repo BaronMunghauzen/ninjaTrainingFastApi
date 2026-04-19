@@ -1,15 +1,33 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from pydantic import BaseModel, Field
+
 from app.exercises.dao import ExerciseDAO
+from app.exercises.replacement_service import get_replacement_candidates, replace_exercise_from_pool
 from app.exercises.rb import RBExercise
 from app.exercises.schemas import SExercise, SExerciseAdd, SExerciseUpdate
-from app.users.dependencies import get_current_admin_user, get_current_user_user
+from app.users.dependencies import (
+    get_current_admin_user,
+    get_current_user_user,
+    get_current_user_or_valid_anonymous_session,
+)
 from app.users.dao import UsersDAO
 from app.files.dao import FilesDAO
 from app.files.service import FileService
 
 router = APIRouter(prefix='/exercises', tags=['Работа с упражнениями'])
+
+
+class ReplacementActionBody(BaseModel):
+    action: str = Field(
+        ...,
+        description="simplify | replace | complicate (или упростить | заменить | усложнить)",
+    )
+
+
+class ReplaceFromPoolBody(BaseModel):
+    exercise_builder_pool_uuid: UUID
 
 
 @router.get("/", summary="Получить все упражнения")
@@ -38,7 +56,10 @@ async def get_all_exercises(request_body: RBExercise = Depends(), user_data = De
 
 
 @router.get("/{exercise_uuid}", summary="Получить одно упражнение по id")
-async def get_exercise_by_id(exercise_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+async def get_exercise_by_id(
+    exercise_uuid: UUID,
+    access_data=Depends(get_current_user_or_valid_anonymous_session),
+) -> dict:
     rez = await ExerciseDAO.find_full_data(exercise_uuid)
     if rez is None:
         return {'message': f'Упражнение с ID {exercise_uuid} не найдено!'}
@@ -284,3 +305,60 @@ async def upload_exercise_video(
         "video_uuid": video_file.uuid,
         "video_preview_uuid": preview_file.uuid if preview_file else None
     }
+
+
+@router.post(
+    "/{exercise_uuid}/replacement-options",
+    summary="Подобрать замены для упражнения (пул + exercise_reference)",
+    description=(
+        "Логика отбора совпадает со сборкой тренировки (training_builder). "
+        "Исключаются exercise_reference, уже присутствующие в этой тренировке. "
+        "Пагинация: query-параметры page и page_size; в ответе total, total_pages, has_next, has_prev."
+    ),
+)
+async def api_replacement_options(
+    exercise_uuid: UUID,
+    body: ReplacementActionBody,
+    user_data=Depends(get_current_user_user),
+    page: int = Query(1, ge=1, description="Номер страницы (с 1)"),
+    page_size: int = Query(20, ge=1, le=100, description="Размер страницы"),
+):
+    result = await get_replacement_candidates(
+        exercise_uuid,
+        body.action,
+        user_data.id,
+        page=page,
+        page_size=page_size,
+    )
+    err = result.get("error")
+    if err == "exercise_not_found":
+        raise HTTPException(status_code=404, detail=err)
+    if err == "forbidden":
+        raise HTTPException(status_code=403, detail=err)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return result
+
+
+@router.put(
+    "/{exercise_uuid}/replace-from-pool",
+    summary="Заменить упражнение по uuid из exercise_builder_pool",
+)
+async def api_replace_exercise_from_pool(
+    exercise_uuid: UUID,
+    body: ReplaceFromPoolBody,
+    user_data=Depends(get_current_user_user),
+):
+    result = await replace_exercise_from_pool(
+        exercise_uuid, body.exercise_builder_pool_uuid, user_data.id
+    )
+    err = result.get("error")
+    if err == "exercise_not_found":
+        raise HTTPException(status_code=404, detail=err)
+    if err == "forbidden":
+        raise HTTPException(status_code=403, detail=err)
+    if err == "reference_already_in_workout":
+        raise HTTPException(status_code=409, detail=err)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return result

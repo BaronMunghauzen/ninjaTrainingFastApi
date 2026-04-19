@@ -1,10 +1,12 @@
 from app.dao.base import BaseDAO
 from app.trainings.models import Training
 from app.programs.dao import ProgramDAO
-from app.exercises.dao import ExerciseDAO
 from app.files.dao import FilesDAO
+from app.user_program_plan.dao import UserProgramPlanDAO
+from app.users.dao import UsersDAO
 from app.database import async_session_maker
 from sqlalchemy.future import select
+from sqlalchemy import update as sqlalchemy_update
 from sqlalchemy.orm import joinedload
 from fastapi import HTTPException, status
 from uuid import UUID
@@ -15,10 +17,28 @@ from app.programs.models import Program
 class TrainingDAO(BaseDAO):
     model = Training
     uuid_fk_map = {
-        'program_id': (ProgramDAO, 'program_uuid'),
-        'main_exercise_id': (ExerciseDAO, 'exercise_uuid'),
-        'image_id': (FilesDAO, 'image_uuid')
+        "program_id": (ProgramDAO, "program_uuid"),
+        "main_exercise_id": (ProgramDAO, "exercise_uuid"),  # overwritten after class (avoid circular import)
+        "image_id": (FilesDAO, "image_uuid"),
+        "user_program_plan_id": (UserProgramPlanDAO, "user_program_plan_uuid"),
+        "user_id": (UsersDAO, "user_uuid"),
     }
+
+    @classmethod
+    async def set_program_plan_by_anonymous_session(
+        cls, anonymous_session_id: UUID, user_program_plan_id: int
+    ) -> int:
+        """
+        Проставить user_program_plan_id всем training с данным anonymous_session_id.
+        """
+        async with async_session_maker() as session:
+            async with session.begin():
+                res = await session.execute(
+                    sqlalchemy_update(cls.model)
+                    .where(cls.model.anonymous_session_id == anonymous_session_id)
+                    .values(user_program_plan_id=user_program_plan_id)
+                )
+                return int(res.rowcount or 0)
 
     @classmethod
     async def find_by_program_and_stage(cls, program_id: int | None, stage: int):
@@ -154,7 +174,8 @@ class TrainingDAO(BaseDAO):
         """
         async with async_session_maker() as session:
             query = select(cls.model).options(
-                joinedload(cls.model.image)
+                joinedload(cls.model.image),
+                joinedload(cls.model.user_program_plan),
             ).filter_by(id=object_id)
             result = await session.execute(query)
             object_info = result.scalar_one_or_none()
@@ -219,3 +240,14 @@ class TrainingDAO(BaseDAO):
             # Отключаем объект от сессии
             session.expunge(training)
             return training
+
+
+# Разрыв циклического импорта: exercises.dao -> trainings.dao -> exercises.dao
+from app.exercises.dao import ExerciseDAO
+TrainingDAO.uuid_fk_map = {
+    "program_id": (ProgramDAO, "program_uuid"),
+    "main_exercise_id": (ExerciseDAO, "exercise_uuid"),
+    "image_id": (FilesDAO, "image_uuid"),
+    "user_program_plan_id": (UserProgramPlanDAO, "user_program_plan_uuid"),
+    "user_id": (UsersDAO, "user_uuid"),
+}

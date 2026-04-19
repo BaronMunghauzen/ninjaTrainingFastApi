@@ -18,6 +18,7 @@ class SUserExercise(BaseModel):
     set_number: int = Field(..., description="Номер подхода")
     weight: Optional[float] = Field(None, description="Вес в кг")
     reps: int = Field(..., description="Количество повторений")
+    duration_seconds: Optional[int] = Field(None, description="Длительность подхода (сек), для time-based")
 
 
 class SUserExerciseAdd(BaseModel):
@@ -30,6 +31,7 @@ class SUserExerciseAdd(BaseModel):
     set_number: int = Field(1, ge=1, description="Номер подхода")
     weight: Optional[float] = Field(None, ge=0, description="Вес в кг")
     reps: int = Field(0, ge=0, description="Количество повторений")
+    duration_seconds: Optional[int] = Field(None, ge=0, description="Длительность подхода (сек)")
 
 
 class SUserExerciseUpdate(BaseModel):
@@ -42,6 +44,7 @@ class SUserExerciseUpdate(BaseModel):
     set_number: Optional[int] = Field(None, ge=1, description="Номер подхода")
     weight: Optional[float] = Field(None, ge=0, description="Вес в кг")
     reps: Optional[int] = Field(None, ge=0, description="Количество повторений")
+    duration_seconds: Optional[int] = Field(None, ge=0, description="Длительность подхода (сек)")
 
 
 class SBatchSetPassedRequest(BaseModel):

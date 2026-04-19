@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.user_exercises.dao import UserExerciseDAO
 from app.user_exercises.rb import RBUserExercise
 from app.user_exercises.schemas import SUserExercise, SUserExerciseAdd, SUserExerciseUpdate, SBatchSetPassedRequest, SBatchSetPassedResponse, SGetLastUserExercisesRequest
-from app.users.dependencies import get_current_admin_user, get_current_user_user
+from app.users.dependencies import (
+    get_current_admin_user,
+    get_current_user_user,
+    get_current_user_or_valid_anonymous_session,
+)
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
 from app.users.dao import UsersDAO
@@ -16,7 +20,10 @@ router = APIRouter(prefix='/user_exercises', tags=['Работа с пользо
 
 
 @router.get("/", summary="Получить все пользовательские упражнения")
-async def get_all_user_exercises(request_body: RBUserExercise = Depends(), user_data = Depends(get_current_user_user)) -> list[dict]:
+async def get_all_user_exercises(
+    request_body: RBUserExercise = Depends(),
+    access_data=Depends(get_current_user_or_valid_anonymous_session),
+) -> list[dict]:
     # Используем оптимизированный метод с предзагруженными связанными данными
     user_exercises = await UserExerciseDAO.find_all_with_relations(**request_body.to_dict())
     
@@ -126,7 +133,10 @@ async def add_user_exercise(user_exercise: SUserExerciseAdd, user_data = Depends
     values['exercise_id'] = exercise.id
     
     # Фильтруем только те поля, которые есть в модели UserExercise
-    valid_fields = {'program_id', 'training_id', 'user_id', 'exercise_id', 'training_date', 'status', 'set_number', 'weight', 'reps'}
+    valid_fields = {
+        'program_id', 'training_id', 'user_id', 'exercise_id', 'training_date', 'status',
+        'set_number', 'weight', 'reps', 'duration_seconds',
+    }
     filtered_values = {k: v for k, v in values.items() if k in valid_fields}
 
     user_exercise_uuid = await UserExerciseDAO.add(**filtered_values)
@@ -334,7 +344,7 @@ async def get_last_user_exercises(
 @router.patch("/batch_set_passed", summary="Batch установка статуса PASSED для множества упражнений")
 async def batch_set_user_exercises_passed(
     request: SBatchSetPassedRequest,
-    user_data = Depends(get_current_user_user)
+    access_data = Depends(get_current_user_or_valid_anonymous_session)
 ) -> SBatchSetPassedResponse:
     """
     Batch установка статуса PASSED для множества пользовательских упражнений

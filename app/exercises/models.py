@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from app.users.models import User
     from app.user_exercises.models import UserExercise
     from app.files.models import File
+    from app.trainings.models import Training
 
 
 # создаем модель таблицы тренировок
@@ -24,6 +25,7 @@ class Exercise(Base):
     caption: Mapped[str]  # Название
     description: Mapped[str] = mapped_column(Text, nullable=True)
     difficulty_level: Mapped[int] = mapped_column(default=1, server_default=text('1'))
+    pool_difficulty_level: Mapped[Optional[str]] = mapped_column(nullable=True)
     order: Mapped[int] = mapped_column(default=0, server_default=text('0'))
     muscle_group: Mapped[str]
     sets_count: Mapped[Optional[int]] = mapped_column(nullable=True)  # Количество подходов
@@ -35,6 +37,10 @@ class Exercise(Base):
     video_id: Mapped[Optional[int]] = mapped_column(ForeignKey("files.id"), nullable=True)
     video_preview_id: Mapped[Optional[int]] = mapped_column(ForeignKey("files.id"), nullable=True)
     exercise_reference_id: Mapped[Optional[int]] = mapped_column(ForeignKey("exercise_reference.id"), nullable=True)
+    training_id: Mapped[Optional[int]] = mapped_column(ForeignKey("training.id"), nullable=True)
+    slot_type: Mapped[Optional[str]] = mapped_column(nullable=True)
+    is_time_based: Mapped[Optional[bool]] = mapped_column(nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(nullable=True)
 
     # Связь с пользователем (только для пользовательских упражнений)
     user: Mapped[Optional["User"]] = relationship("User", back_populates="exercises")
@@ -45,6 +51,7 @@ class Exercise(Base):
     video: Mapped[Optional["File"]] = relationship("File", foreign_keys=[video_id])
     video_preview: Mapped[Optional["File"]] = relationship("File", foreign_keys=[video_preview_id])
     exercise_reference: Mapped[Optional["ExerciseReference"]] = relationship("ExerciseReference")
+    training: Mapped[Optional["Training"]] = relationship("Training", back_populates="exercises")
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id}, caption={self.caption!r}, type={self.exercise_type!r})"
@@ -57,6 +64,7 @@ class Exercise(Base):
             "caption": self.caption,
             "description": self.description,
             "difficulty_level": self.difficulty_level,
+            "pool_difficulty_level": self.pool_difficulty_level,
             "order": self.order,
             "muscle_group": self.muscle_group,
             "sets_count": self.sets_count,
@@ -67,5 +75,9 @@ class Exercise(Base):
             "image_uuid": str(self.image.uuid) if hasattr(self, 'image') and self.image else None,
             "video_uuid": str(self.video.uuid) if self.video else None,
             "video_preview_uuid": str(self.video_preview.uuid) if self.video_preview else None,
-            "exercise_reference_uuid": str(self.exercise_reference.uuid) if self.exercise_reference else None
+            "exercise_reference_uuid": str(self.exercise_reference.uuid) if self.exercise_reference else None,
+            "training_uuid": str(self.training.uuid) if getattr(self, "training", None) and self.training else None,
+            "slot_type": self.slot_type,
+            "is_time_based": self.is_time_based,
+            "duration_seconds": self.duration_seconds,
         }

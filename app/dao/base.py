@@ -7,7 +7,7 @@ from fastapi import status, HTTPException
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update as sqlalchemy_update, inspect, UniqueConstraint, delete
+from sqlalchemy import update as sqlalchemy_update, inspect, UniqueConstraint, delete, and_
 from app.database import async_session_maker
 from app.exceptions import CategotyNotFoundException
 
@@ -125,20 +125,18 @@ class BaseDAO:
     @classmethod
     @lru_cache
     def _get_unique_columns(cls):
-        """Возвращает список уникальных колонок модели"""
+        """Колонки с уникальностью по одному полю (single-column unique / UniqueConstraint из одного столбца)."""
         mapper = inspect(cls.model)
         unique_columns = set()
 
-        # Получаем таблицу из маппера
         table = mapper.persist_selectable
 
-        # 1. Проверяем ограничения уровня таблицы
         for constraint in table.constraints:
             if isinstance(constraint, UniqueConstraint):
-                for col in constraint.columns:
-                    unique_columns.add(col.name)
+                cols = [c.name for c in constraint.columns]
+                if len(cols) == 1:
+                    unique_columns.add(cols[0])
 
-        # 2. Проверяем колонки с unique=True
         for column in table.columns:
             if column.unique and not column.foreign_keys:
                 unique_columns.add(column.name)
@@ -146,10 +144,37 @@ class BaseDAO:
         return list(unique_columns)
 
     @classmethod
+    @lru_cache
+    def _get_composite_unique_groups(cls) -> tuple[tuple[str, ...], ...]:
+        """Составные уникальные ключи (несколько колонок в одном UniqueConstraint)."""
+        mapper = inspect(cls.model)
+        groups: list[tuple[str, ...]] = []
+        table = mapper.persist_selectable
+
+        for constraint in table.constraints:
+            if isinstance(constraint, UniqueConstraint):
+                cols = tuple(c.name for c in constraint.columns)
+                if len(cols) > 1:
+                    groups.append(cols)
+
+        return tuple(groups)
+
+    @classmethod
     async def _check_uniqueness(cls, session: AsyncSession, values: dict, exclude_uuid: Optional[UUID] = None):
         """Предварительная проверка уникальных полей"""
+        for group in cls._get_composite_unique_groups():
+            if all(col in values for col in group):
+                conditions = [getattr(cls.model, col) == values[col] for col in group]
+                query = select(cls.model).where(and_(*conditions))
+                if exclude_uuid:
+                    query = query.where(cls.model.uuid != exclude_uuid)
+
+                exists = await session.execute(query)
+                if exists.scalar():
+                    keys_repr = ", ".join(f"{c}={values[c]}" for c in group)
+                    raise ValueError(f"Объект с ({keys_repr}) уже существует")
+
         unique_columns = cls._get_unique_columns()
-        
         for col in unique_columns:
             if col in values:
                 query = select(cls.model).where(
@@ -157,9 +182,9 @@ class BaseDAO:
                 )
                 if exclude_uuid:
                     query = query.where(cls.model.uuid != exclude_uuid)
-                
+
                 exists = await session.execute(query)
-                
+
                 if exists.scalar():
                     raise ValueError(f"Объект с {col}='{values[col]}' уже существует")
 

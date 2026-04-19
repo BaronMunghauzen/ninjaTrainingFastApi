@@ -12,7 +12,8 @@ class SExercise(BaseModel):
     user_uuid: Optional[str] = Field(None, description="UUID пользователя")
     caption: str = Field(..., description="Название упражнения")
     description: Optional[str] = Field(None, description="Описание упражнения")
-    difficulty_level: int = Field(..., description="Уровень сложности")
+    difficulty_level: int = Field(..., description="Уровень сложности (число 1–10)")
+    pool_difficulty_level: Optional[str] = Field(None, description="Уровень сложности из пула конструктора (строка)")
     order: int = Field(..., description="Порядок для сортировки")
     muscle_group: str = Field(..., description="Группа мышц")
     sets_count: Optional[int] = Field(None, description="Количество подходов")
@@ -24,6 +25,10 @@ class SExercise(BaseModel):
     video_uuid: Optional[str] = Field(None, description="UUID видео")
     video_preview_uuid: Optional[str] = Field(None, description="UUID превью видео")
     exercise_reference_uuid: Optional[str] = Field(None, description="UUID справочника упражнения")
+    training_uuid: Optional[str] = Field(None, description="UUID тренировки")
+    slot_type: Optional[str] = Field(None, description="Тип слота (anchor/main/accessory/core/mobility)")
+    is_time_based: Optional[bool] = Field(None, description="Упражнение на время (из пула / копия)")
+    duration_seconds: Optional[int] = Field(None, description="Длительность выполнения в секундах (time-based)")
 
 
 class SExerciseAdd(BaseModel):
@@ -32,6 +37,7 @@ class SExerciseAdd(BaseModel):
     caption: str = Field(..., min_length=1, max_length=100, description="Название упражнения")
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     difficulty_level: int = Field(1, ge=1, le=10, description="Уровень сложности (1-10)")
+    pool_difficulty_level: Optional[str] = Field(None, max_length=50, description="Уровень сложности из пула (если известен)")
     order: int = Field(0, description="Порядок для сортировки")
     muscle_group: str = Field(..., min_length=1, max_length=50, description="Группа мышц")
     sets_count: Optional[int] = Field(None, description="Количество подходов")
@@ -43,6 +49,10 @@ class SExerciseAdd(BaseModel):
     video_uuid: Optional[str] = Field(None, description="UUID видео")
     video_preview_uuid: Optional[str] = Field(None, description="UUID превью видео")
     exercise_reference_uuid: Optional[str] = Field(None, description="UUID справочника упражнения")
+    training_uuid: Optional[str] = Field(None, description="UUID тренировки")
+    slot_type: Optional[str] = Field(None, description="Тип слота (anchor/main/accessory/core/mobility)")
+    is_time_based: Optional[bool] = Field(None, description="Упражнение на время")
+    duration_seconds: Optional[int] = Field(None, description="Длительность выполнения в секундах (time-based)")
 
 
 class SExerciseUpdate(BaseModel):
@@ -51,6 +61,7 @@ class SExerciseUpdate(BaseModel):
     caption: Optional[str] = Field(None, min_length=1, max_length=100, description="Название упражнения")
     description: Optional[str] = Field(None, max_length=500, description="Описание упражнения")
     difficulty_level: Optional[int] = Field(None, ge=1, le=10, description="Уровень сложности (1-10)")
+    pool_difficulty_level: Optional[str] = Field(None, max_length=50, description="Уровень сложности из пула")
     order: Optional[int] = Field(None, description="Порядок для сортировки")
     muscle_group: Optional[str] = Field(None, min_length=1, max_length=50, description="Группа мышц")
     sets_count: Optional[int] = Field(None, description="Количество подходов")
@@ -62,3 +73,7 @@ class SExerciseUpdate(BaseModel):
     video_uuid: Optional[str] = Field(None, description="UUID видео")
     video_preview_uuid: Optional[str] = Field(None, description="UUID превью видео")
     exercise_reference_uuid: Optional[str] = Field(None, description="UUID справочника упражнения")
+    training_uuid: Optional[str] = Field(None, description="UUID тренировки")
+    slot_type: Optional[str] = Field(None, description="Тип слота (anchor/main/accessory/core/mobility)")
+    is_time_based: Optional[bool] = Field(None, description="Упражнение на время")
+    duration_seconds: Optional[int] = Field(None, description="Длительность выполнения в секундах (time-based)")

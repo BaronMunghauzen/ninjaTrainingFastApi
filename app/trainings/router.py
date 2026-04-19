@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from app.trainings.dao import TrainingDAO
+from app.user_selected_trainings.dao import UserSelectedTrainingDAO
 from app.trainings.rb import RBTraining
 from app.trainings.schemas import STraining, STrainingAdd, STrainingUpdate, STrainingArchiveResponse, STrainingRestoreResponse
 from app.users.dependencies import get_current_admin_user, get_current_user_user
@@ -24,6 +25,7 @@ async def get_all_trainings(request_body: RBTraining = Depends(), user_data = De
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         filters['user_id'] = user.id
     trainings = await TrainingDAO.find_all(**filters)
+    selected_training_ids = await UserSelectedTrainingDAO.get_selected_training_ids_for_user(user_data.id)
     result = []
     for t in trainings:
         data = {
@@ -38,6 +40,7 @@ async def get_all_trainings(request_body: RBTraining = Depends(), user_data = De
             "stage": t.stage,
             "image_uuid": str(t.image.uuid) if hasattr(t, 'image') and t.image else None,
             "actual": t.actual,
+            "is_selected": t.id in selected_training_ids,
         }
         # Безопасно получаем данные программы
         if hasattr(t, 'program') and t.program:

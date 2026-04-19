@@ -1,7 +1,10 @@
 from uuid import UUID
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from app.users.dependencies import get_current_user_user
+from app.users.dependencies import (
+    get_current_user_user,
+    get_current_user_or_valid_anonymous_session,
+)
 from app.users.models import User
 from app.files.service import FileService
 from app.files.schemas import FileUploadResponse, FileResponse as FileResponseSchema
@@ -16,7 +19,10 @@ router = APIRouter(prefix='/files', tags=['Files'])
 
 
 @router.get('/file/{file_uuid}', summary='Получить файл по UUID')
-async def get_file_by_uuid(file_uuid: str, user_data = Depends(get_current_user_user)):
+async def get_file_by_uuid(
+    file_uuid: str,
+    access_data=Depends(get_current_user_or_valid_anonymous_session),
+):
     print(f"Поиск файла с UUID: {file_uuid}")
     file_record = await FilesDAO.find_by_uuid(file_uuid)
     print(f"Результат поиска файла: ID={file_record.id if file_record else None}, UUID={file_record.uuid if file_record else None}")
@@ -25,8 +31,9 @@ async def get_file_by_uuid(file_uuid: str, user_data = Depends(get_current_user_
         raise HTTPException(status_code=404, detail="Файл не найден")
     
     # Проверяем права доступа
-    if file_record.entity_type == "user" and file_record.entity_id != user_data.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этому файлу")
+    if file_record.entity_type == "user":
+        if not hasattr(access_data, "id") or file_record.entity_id != access_data.id:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому файлу")
     
     # Проверяем существование файла на диске
     if not os.path.exists(file_record.file_path):

@@ -1,12 +1,14 @@
 from app.dao.base import BaseDAO
-from app.user_training.models import UserTraining
+from app.user_training.models import UserTraining, TrainingStatus
 from app.user_program.dao import UserProgramDAO
 from app.user_program.models import UserProgram
+from app.user_program_plan.dao import UserProgramPlanDAO
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
 from app.users.dao import UsersDAO
 from app.database import async_session_maker
 from sqlalchemy.future import select
+from sqlalchemy import update as sqlalchemy_update
 from sqlalchemy.orm import joinedload
 from functools import lru_cache
 import hashlib
@@ -23,9 +25,67 @@ class UserTrainingDAO(BaseDAO):
         'user_program_id': (UserProgramDAO, 'user_program_uuid'),
         'program_id': (ProgramDAO, 'program_uuid'),
         'training_id': (TrainingDAO, 'training_uuid'),
+        'user_program_plan_id': (UserProgramPlanDAO, 'user_program_plan_uuid'),
         'user_id': (UsersDAO, 'user_uuid')
     }
-    
+
+    @classmethod
+    def _apply_is_rest_day_filter(cls, query, is_rest_day: bool | None):
+        """При is_rest_day=False включаем строки с NULL (наследие до явной простановки флага)."""
+        if is_rest_day is False:
+            return query.where(
+                sa.or_(
+                    cls.model.is_rest_day.is_(False),
+                    cls.model.is_rest_day.is_(None),
+                )
+            )
+        if is_rest_day is True:
+            return query.where(cls.model.is_rest_day.is_(True))
+        return query
+
+    @classmethod
+    async def set_program_plan_by_anonymous_session(
+        cls, anonymous_session_id: UUID, user_program_plan_id: int
+    ) -> int:
+        """
+        Проставить user_program_plan_id всем user_training с данным anonymous_session_id.
+        """
+        async with async_session_maker() as session:
+            async with session.begin():
+                res = await session.execute(
+                    sqlalchemy_update(cls.model)
+                    .where(cls.model.anonymous_session_id == anonymous_session_id)
+                    .values(user_program_plan_id=user_program_plan_id)
+                )
+                return int(res.rowcount or 0)
+
+    @classmethod
+    async def find_full_data(cls, object_uuid: UUID):
+        """Получение user_training по uuid с загрузкой связей для корректного отображения uuid в ответах."""
+        async with async_session_maker() as session:
+            query = (
+                select(cls.model)
+                .options(
+                    joinedload(cls.model.user_program),
+                    joinedload(cls.model.program),
+                    joinedload(cls.model.training),
+                    joinedload(cls.model.user),
+                    joinedload(cls.model.user_program_plan),
+                )
+                .filter_by(uuid=object_uuid)
+            )
+            result = await session.execute(query)
+            result = result.unique()
+            object_info = result.scalar_one_or_none()
+            if not object_info:
+                from fastapi import HTTPException, status
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Объект {cls.model.__name__} с ID {object_uuid} не найден"
+                )
+            session.expunge(object_info)
+            return object_info
+
     # Простой кэш для результатов запросов
     _cache = {}
     _cache_ttl = 300  # 5 минут
@@ -54,6 +114,7 @@ class UserTrainingDAO(BaseDAO):
     async def find_all_with_relations(cls, **filter_by):
         """Оптимизированный метод для загрузки user_trainings без задержки"""
         filters = filter_by.copy()
+        is_rest_day_filter = filters.pop("is_rest_day", None)
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
             if uuid_field in filters:
                 uuid_value = filters.pop(uuid_field)
@@ -64,6 +125,7 @@ class UserTrainingDAO(BaseDAO):
                     return []
         async with async_session_maker() as session:
             query = select(cls.model).filter_by(**filters)
+            query = cls._apply_is_rest_day_filter(query, is_rest_day_filter)
             # Сортируем по training_date и created_at по убыванию (самые последние первыми)
             query = query.order_by(cls.model.training_date.desc(), cls.model.created_at.desc())
             result = await session.execute(query)
@@ -74,6 +136,9 @@ class UserTrainingDAO(BaseDAO):
     async def find_all_with_relations_paginated(cls, page: int = 1, page_size: int = 50, **filter_by):
         """Оптимизированный метод с пагинацией на уровне БД без задержки"""
         filters = filter_by.copy()
+        # Специальный фильтр: есть / нет привязки к плану программы
+        has_user_program_plan = filters.pop("has_user_program_plan", None)
+        is_rest_day_filter = filters.pop("is_rest_day", None)
         for fk_field, (related_dao, uuid_field) in getattr(cls, 'uuid_fk_map', {}).items():
             if uuid_field in filters:
                 uuid_value = filters.pop(uuid_field)
@@ -84,8 +149,18 @@ class UserTrainingDAO(BaseDAO):
                     return [], 0
         async with async_session_maker() as session:
             count_query = select(sa.func.count(cls.model.id)).filter_by(**filters)
+            count_query = cls._apply_is_rest_day_filter(count_query, is_rest_day_filter)
+            if has_user_program_plan is True:
+                count_query = count_query.where(cls.model.user_program_plan_id.isnot(None))
+            elif has_user_program_plan is False:
+                count_query = count_query.where(cls.model.user_program_plan_id.is_(None))
             total_count = await session.scalar(count_query)
             query = select(cls.model).filter_by(**filters)
+            query = cls._apply_is_rest_day_filter(query, is_rest_day_filter)
+            if has_user_program_plan is True:
+                query = query.where(cls.model.user_program_plan_id.isnot(None))
+            elif has_user_program_plan is False:
+                query = query.where(cls.model.user_program_plan_id.is_(None))
             # Сортируем по training_date и created_at по убыванию (самые последние первыми)
             query = query.order_by(cls.model.training_date.desc(), cls.model.created_at.desc())
             query = query.offset((page - 1) * page_size).limit(page_size)
@@ -174,7 +249,7 @@ class UserTrainingDAO(BaseDAO):
                 "weekday": ut.weekday,
                 "is_rest_day": ut.is_rest_day,
                 "stage": ut.stage,
-                "created_at": created_at_with_tz
+                "created_at": created_at_with_tz,
             }
             
             # Используем предзагруженные связанные данные
@@ -271,7 +346,7 @@ class UserTrainingDAO(BaseDAO):
                 "weekday": ut.weekday,
                 "is_rest_day": ut.is_rest_day,
                 "stage": ut.stage,
-                "created_at": created_at_with_tz
+                "created_at": created_at_with_tz,
             }
             
             # Используем предзагруженные связанные данные
@@ -461,7 +536,67 @@ class UserTrainingDAO(BaseDAO):
             
             result = await session.execute(query)
             return result.scalar_one_or_none()
-    
+
+    @classmethod
+    async def find_previous_for_progress_comparison(
+        cls, current: UserTraining
+    ) -> UserTraining | None:
+        """
+        Предыдущая завершённая (PASSED) тренировка того же пользователя/сессии, строго раньше текущей
+        по (training_date, created_at, id).
+
+        Если у текущей задан user_program_plan_id и непустой training_type — критерий: тот же training_type
+        (без учёта регистра и крайних пробелов).
+        Иначе — та же запись training (training_id).
+        """
+        conditions = [
+            cls.model.id != current.id,
+            cls.model.status == TrainingStatus.PASSED,
+            sa.tuple_(
+                cls.model.training_date,
+                cls.model.created_at,
+                cls.model.id,
+            )
+            < sa.tuple_(
+                sa.literal(current.training_date),
+                sa.literal(current.created_at),
+                sa.literal(current.id),
+            ),
+        ]
+        if current.user_id is not None:
+            conditions.append(cls.model.user_id == current.user_id)
+        elif current.anonymous_session_id is not None:
+            conditions.append(cls.model.anonymous_session_id == current.anonymous_session_id)
+        else:
+            return None
+
+        tt_norm = (current.training_type or "").strip().lower()
+        if current.user_program_plan_id and tt_norm:
+            conditions.append(
+                sa.func.lower(sa.func.trim(cls.model.training_type)) == tt_norm
+            )
+        else:
+            if current.training_id is None:
+                return None
+            conditions.append(cls.model.training_id == current.training_id)
+
+        async with async_session_maker() as session:
+            q = (
+                select(cls.model)
+                .where(sa.and_(*conditions))
+                .order_by(
+                    cls.model.training_date.desc(),
+                    cls.model.created_at.desc(),
+                    cls.model.id.desc(),
+                )
+                .limit(1)
+            )
+            res = await session.execute(q)
+            row = res.scalar_one_or_none()
+            if row:
+                session.expunge(row)
+            return row
+
     @classmethod
     async def count_completed_trainings_in_week(cls, user_id: int, week_start_date: date):
         """

@@ -4,6 +4,8 @@ from typing import Optional, List
 from sqlalchemy import ForeignKey, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, str_uniq, int_pk, str_null_true, uuid_field
+from uuid import UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from datetime import date
 
 
@@ -21,13 +23,15 @@ class UserExercise(Base):
     uuid: Mapped[uuid_field]
     program_id: Mapped[Optional[int]] = mapped_column(ForeignKey("program.id"), nullable=True)
     training_id: Mapped[int] = mapped_column(ForeignKey("training.id"))
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
     exercise_id: Mapped[int] = mapped_column(ForeignKey("exercise.id"))
     training_date: Mapped[date]
     status: Mapped[ExerciseStatus]
     set_number: Mapped[int] = mapped_column(default=1)  # Номер подхода
     weight: Mapped[Optional[float]] = mapped_column(nullable=True)  # Вес в кг
     reps: Mapped[int] = mapped_column(default=0)  # Количество повторений
+    duration_seconds: Mapped[Optional[int]] = mapped_column(nullable=True)  # Фактическая длительность подхода (сек)
+    anonymous_session_id: Mapped[Optional[UUID]] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
 
 
     # Связи
@@ -52,5 +56,6 @@ class UserExercise(Base):
             "status": self.status.value,
             "set_number": self.set_number,
             "weight": self.weight,
-            "reps": self.reps
+            "reps": self.reps,
+            "duration_seconds": self.duration_seconds,
         }

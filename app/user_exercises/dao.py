@@ -12,6 +12,9 @@ from app.trainings.models import Training
 from app.users.models import User
 from app.exercises.models import Exercise
 from uuid import UUID
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import or_
 
 
 class UserExerciseDAO(BaseDAO):
@@ -77,6 +80,54 @@ class UserExerciseDAO(BaseDAO):
                 return None
             
             return object_info
+
+    @classmethod
+    async def find_historical_sets_for_exercise_progress(
+        cls,
+        *,
+        user_id: Optional[int],
+        anonymous_session_id: Optional[UUID],
+        exercise_reference_ids: list[int],
+        exercise_ids_fallback: list[int],
+        exclude_user_exercise_ids: list[int],
+        created_before: Optional[datetime],
+    ) -> list[tuple[UserExercise, Optional[int], int]]:
+        """
+        Подходы до текущей сессии: по exercise_reference_id и/или по exercise_id (fallback).
+        Возвращает (UserExercise, exercise_reference_id из Exercise, exercise.id).
+        """
+        parts = []
+        if exercise_reference_ids:
+            parts.append(Exercise.exercise_reference_id.in_(exercise_reference_ids))
+        if exercise_ids_fallback:
+            parts.append(UserExercise.exercise_id.in_(exercise_ids_fallback))
+        if not parts:
+            return []
+
+        async with async_session_maker() as session:
+            q = (
+                select(UserExercise, Exercise.exercise_reference_id, Exercise.id)
+                .join(Exercise, UserExercise.exercise_id == Exercise.id)
+                .where(or_(*parts))
+            )
+            if exclude_user_exercise_ids:
+                q = q.where(UserExercise.id.notin_(exclude_user_exercise_ids))
+            if created_before is not None:
+                q = q.where(UserExercise.created_at < created_before)
+            if user_id is not None:
+                q = q.where(UserExercise.user_id == user_id)
+            else:
+                q = q.where(
+                    UserExercise.user_id.is_(None),
+                    UserExercise.anonymous_session_id == anonymous_session_id,
+                )
+            res = await session.execute(q)
+            out: list[tuple[UserExercise, Optional[int], int]] = []
+            for row in res.all():
+                ue, ref_id, ex_pk = row[0], row[1], row[2]
+                session.expunge(ue)
+                out.append((ue, ref_id, ex_pk))
+            return out
     
     @classmethod
     async def batch_set_passed(cls, user_exercise_uuids: list[UUID]):

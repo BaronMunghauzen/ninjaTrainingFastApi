@@ -4,11 +4,20 @@ import traceback
 import asyncio
 import threading
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, status
 from app.user_training.dao import UserTrainingDAO
 from app.user_training.rb import RBUserTraining
-from app.user_training.schemas import SUserTraining, SUserTrainingAdd, SUserTrainingUpdate
-from app.users.dependencies import get_current_admin_user, get_current_user_user
+from app.user_training.schemas import (
+    SUserTraining,
+    SUserTrainingAdd,
+    SUserTrainingUpdate,
+    SUserTrainingSummaryWithComparisonResponse,
+)
+from app.users.dependencies import (
+    get_current_admin_user,
+    get_current_user_user,
+    get_current_user_or_valid_anonymous_session,
+)
 from app.user_program.dao import UserProgramDAO
 from app.programs.dao import ProgramDAO
 from app.trainings.dao import TrainingDAO
@@ -198,12 +207,21 @@ async def get_all_user_trainings(
     user_data = Depends(get_current_user_user),
     page: int = Query(1, ge=1, description="Номер страницы"),
     page_size: int = Query(50, ge=1, le=100, description="Размер страницы"),
-    is_rest_day: bool = Query(None, description="Фильтр по дню отдыха (true/false)")
+    is_rest_day: bool = Query(
+        None,
+        description="Фильтр по дню отдыха: true — только отдых; false — не отдых и записи без флага (NULL)",
+    ),
+    is_user_program_plan: bool = Query(
+        None,
+        description="Фильтр по наличию привязки к плану программы: true — только с user_program_plan_id, false — только без него",
+    ),
 ) -> dict:
     # Используем оптимизированный метод с полными связанными данными
     filters = request_body.to_dict()
     if is_rest_day is not None:
         filters['is_rest_day'] = is_rest_day
+    if is_user_program_plan is not None:
+        filters['has_user_program_plan'] = is_user_program_plan
     
     result, total_count = await UserTrainingDAO.find_all_with_full_relations_paginated(
         page=page, 
@@ -222,6 +240,26 @@ async def get_all_user_trainings(
             "has_prev": page > 1
         }
     }
+
+
+@router.post(
+    "/{user_training_uuid}/summary-with-previous",
+    response_model=SUserTrainingSummaryWithComparisonResponse,
+    summary="Итоги тренировки и сравнение с прошлой",
+)
+async def get_user_training_summary_with_previous(user_training_uuid: UUID):
+    """
+    Метрики как у POST /public-training/.../summary, плюс сравнение с предыдущей PASSED:
+    привязка — по training_type при заданном user_program_plan_id (и непустом типе), иначе по training_id.
+    """
+    from app.user_training.summary_service import build_user_training_summary_vs_previous
+
+    result = await build_user_training_summary_vs_previous(user_training_uuid=user_training_uuid)
+    if result.get("error") == "user_training_not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User training not found")
+    if result.get("error") == "training_id_not_found":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User training has no training_id")
+    return result
 
 
 @router.get("/{user_training_uuid}", summary="Получить одну пользовательскую тренировку по id")
@@ -304,8 +342,9 @@ async def add_user_training(user_training: SUserTrainingAdd, user_data = Depends
             if training:
                 values['stage'] = training.stage
 
-    # Фильтруем только те поля, которые есть в модели UserTraining
-    valid_fields = {'user_program_id', 'program_id', 'training_id', 'user_id', 'training_date', 'status', 'stage', 'is_rest_day', 'week', 'weekday'}
+    # Обработка user_program_plan_uuid (DAO преобразует в user_program_plan_id через uuid_fk_map)
+    # training_type передаём как есть
+    valid_fields = {'user_program_id', 'program_id', 'training_id', 'user_program_plan_uuid', 'training_type', 'user_id', 'training_date', 'status', 'stage', 'is_rest_day', 'week', 'weekday'}
     filtered_values = {k: v for k, v in values.items() if k in valid_fields}
 
     user_training_uuid = await UserTrainingDAO.add(**filtered_values)
@@ -453,14 +492,15 @@ async def delete_user_training_by_id(user_training_uuid: UUID, user_data = Depen
 async def pass_user_training(
     user_training_uuid: UUID,
     background_tasks: BackgroundTasks,
-    user_data = Depends(get_current_user_user)
+    access_data = Depends(get_current_user_or_valid_anonymous_session)
 ) -> dict:
     """
     Отметить пользовательскую тренировку как выполненную (PASSED)
     """
     from app.logger import logger
     
-    logger.info(f"Попытка завершить тренировку {user_training_uuid} для пользователя {user_data.id}")
+    actor = getattr(access_data, "id", f"anonymous_session={access_data.get('anonymous_session_id')}" if isinstance(access_data, dict) else "unknown")
+    logger.info(f"Попытка завершить тренировку {user_training_uuid} для пользователя {actor}")
     
     # Получаем user_training
     user_training = await UserTrainingDAO.find_full_data(user_training_uuid)
@@ -513,7 +553,16 @@ async def pass_user_training(
         raise HTTPException(status_code=500, detail="Ошибка при обновлении статуса тренировки")
     
     logger.info(f"Статус тренировки {user_training_uuid} успешно обновлен на PASSED")
-    
+
+    # План программы: если тренировка привязана к плану — пересчёт недели / следующей даты
+    try:
+        from app.user_program_plan.on_training_passed import update_plan_on_training_passed
+
+        plan_result = await update_plan_on_training_passed(user_training_uuid)
+        logger.info(f"user_program_plan после PASSED: {plan_result}")
+    except Exception as e:
+        logger.error(f"Ошибка обновления плана после PASSED: {e}", exc_info=True)
+
     # Обновляем статус всех связанных user_exercise на PASSED
     if user_training.training_id is not None:
         logger.info(f"Ищу связанные user_exercise с training_id={user_training.training_id} и status=ACTIVE")
@@ -536,6 +585,18 @@ async def pass_user_training(
             logger.info(f"Не найдено активных подходов для training_id={user_training.training_id}")
     else:
         logger.info(f"У тренировки {user_training_uuid} отсутствует training_id, пропускаю обновление user_exercise")
+
+    # Агрегаты user_exercise_stats (в фоне; план уже обновлён выше синхронно)
+    async def update_stats_after_pass():
+        try:
+            from app.user_exercise_stats.service import upsert_on_training_passed
+
+            result = await upsert_on_training_passed(user_training_uuid)
+            logger.info(f"[Background] user_exercise_stats upsert: {result}")
+        except Exception as e:
+            logger.error(f"[Background] Ошибка upsert user_exercise_stats: {e}", exc_info=True)
+
+    background_tasks.add_task(update_stats_after_pass)
     
     # Удаляем FCM уведомление о тренировке, если оно было отправлено (program_id отсутствует)
     if user_training.program_id is None:

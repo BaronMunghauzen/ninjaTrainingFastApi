@@ -5,6 +5,7 @@ class RBExercise:
     def __init__(self, 
                  exercise_uuid: str | None = Query(None, description="UUID упражнения"),
                  user_uuid: str | None = Query(None, description="UUID пользователя"),
+                 training_uuid: str | None = Query(None, description="UUID тренировки"),
                  exercise_type: str | None = Query(None, description="Тип упражнения"),
                  caption: str | None = Query(None, description="Название упражнения"),
                  description: str | None = Query(None, description="Описание упражнения"),
@@ -17,6 +18,7 @@ class RBExercise:
                  with_weight: bool | None = Query(None, description="С весом или без")):
         self.uuid = exercise_uuid
         self.user_uuid = user_uuid
+        self.training_uuid = training_uuid
         self.exercise_type = exercise_type
         self.caption = caption
         self.description = description
@@ -32,6 +34,7 @@ class RBExercise:
         data = {
             'uuid': self.uuid,
             'user_uuid': self.user_uuid,
+            'training_uuid': self.training_uuid,
             'exercise_type': self.exercise_type,
             'caption': self.caption,
             'description': self.description,

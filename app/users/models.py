@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.last_values.models import LastValue
     from app.user_favorite_exercises.models import UserFavoriteExercise
     from app.user_favorite_recipes.models import UserFavoriteRecipe
+    from app.user_selected_trainings.models import UserSelectedTraining
 
 
 class GenderEnum(str, Enum):
@@ -127,6 +128,9 @@ class User(Base):
     
     # Определяем отношения с избранными рецептами
     favorite_recipes: Mapped[list["UserFavoriteRecipe"]] = relationship("UserFavoriteRecipe", back_populates="user")
+    selected_trainings: Mapped[list["UserSelectedTraining"]] = relationship(
+        "UserSelectedTraining", back_populates="user"
+    )
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id})"

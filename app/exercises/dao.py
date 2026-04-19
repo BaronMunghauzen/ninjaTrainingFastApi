@@ -3,6 +3,7 @@ from app.exercises.models import Exercise
 from app.users.dao import UsersDAO
 from app.files.dao import FilesDAO
 from app.exercise_reference.dao import ExerciseReferenceDAO
+from app.trainings.dao import TrainingDAO
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from app.database import async_session_maker
@@ -17,7 +18,8 @@ class ExerciseDAO(BaseDAO):
         'image_id': (FilesDAO, 'image_uuid'),
         'video_id': (FilesDAO, 'video_uuid'),
         'video_preview_id': (FilesDAO, 'video_preview_uuid'),
-        'exercise_reference_id': (ExerciseReferenceDAO, 'exercise_reference_uuid')
+        'exercise_reference_id': (ExerciseReferenceDAO, 'exercise_reference_uuid'),
+        'training_id': (TrainingDAO, 'training_uuid')
     }
 
     @classmethod
@@ -27,7 +29,8 @@ class ExerciseDAO(BaseDAO):
                 joinedload(cls.model.image),
                 joinedload(cls.model.video),
                 joinedload(cls.model.video_preview),
-                joinedload(cls.model.exercise_reference)
+                joinedload(cls.model.exercise_reference),
+                joinedload(cls.model.training),
             ).filter_by(uuid=object_uuid)
             result = await session.execute(query)
             object_info = result.scalar_one_or_none()
@@ -53,12 +56,18 @@ class ExerciseDAO(BaseDAO):
                 else:
                     return []
         async with async_session_maker() as session:
-            query = select(cls.model).options(
-                joinedload(cls.model.image),
-                joinedload(cls.model.video),
-                joinedload(cls.model.video_preview),
-                joinedload(cls.model.exercise_reference)
-            ).filter_by(**filters)
+            query = (
+                select(cls.model)
+                .options(
+                    joinedload(cls.model.image),
+                    joinedload(cls.model.video),
+                    joinedload(cls.model.video_preview),
+                    joinedload(cls.model.exercise_reference),
+                    joinedload(cls.model.training),
+                )
+                .filter_by(**filters)
+                .order_by(cls.model.order.asc(), cls.model.id.asc())
+            )
             result = await session.execute(query)
             objects = result.scalars().all()
             # Отключаем объекты от сессии для безопасного использования после закрытия сессии

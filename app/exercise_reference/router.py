@@ -5,7 +5,11 @@ from app.exercise_reference.dao import ExerciseReferenceDAO
 from app.exercise_reference.models import ExerciseReference
 from app.exercise_reference.rb import RBExerciseReference
 from app.exercise_reference.schemas import SExerciseReference, SExerciseReferenceAdd, SExerciseReferenceUpdate, SPaginationResponse, SExerciseStatistics, SExerciseFilters
-from app.users.dependencies import get_current_admin_user, get_current_user_user
+from app.users.dependencies import (
+    get_current_admin_user,
+    get_current_user_user,
+    get_current_user_or_valid_anonymous_session,
+)
 from app.files.dao import FilesDAO
 from app.files.service import FileService
 from app.users.dao import UsersDAO
@@ -259,13 +263,18 @@ async def get_system_exercise_filters(
     )
 
 @router.get('/{exercise_reference_uuid}', summary='Получить упражнение справочника по uuid')
-async def get_exercise_reference_by_id(exercise_reference_uuid: UUID, user_data = Depends(get_current_user_user)) -> dict:
+async def get_exercise_reference_by_id(
+    exercise_reference_uuid: UUID,
+    access_data=Depends(get_current_user_or_valid_anonymous_session),
+) -> dict:
     rez = await ExerciseReferenceDAO.find_full_data(exercise_reference_uuid)
     if rez is None:
         return {'message': f'Упражнение справочника с ID {exercise_reference_uuid} не найдено!'}
     result = rez.to_dict()
-    # Добавляем is_favorite
-    is_fav = await UserFavoriteExerciseDAO.is_favorite(user_data.id, rez.id)
+    # Для анонимного доступа избранное не считаем (нет user_id).
+    is_fav = False
+    if hasattr(access_data, "id"):
+        is_fav = await UserFavoriteExerciseDAO.is_favorite(access_data.id, rez.id)
     result['is_favorite'] = is_fav
     return result
 
