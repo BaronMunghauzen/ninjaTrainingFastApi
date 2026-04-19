@@ -3,9 +3,12 @@
 Запуск (из корня проекта):
   python -m scripts.import_training_program_data
 
-По умолчанию используются пути к файлам в Downloads.
-Можно передать свои пути:
-  python -m scripts.import_training_program_data --rules path/to/rules.csv --pool path/to/pool.csv --equipment path/to/equipment.csv
+По умолчанию CSV ищутся в корне репозитория (рядом с каталогом app/).
+Свои пути:
+  python -m scripts.import_training_program_data --rules path/to/rules.csv --pool ... --equipment ...
+
+Только training_composition_rules:
+  python -m scripts.import_training_program_data --skip-pool --skip-equipment
 """
 import asyncio
 import argparse
@@ -16,10 +19,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Пути по умолчанию (ваши файлы в Downloads)
-DEFAULT_RULES = Path.home() / "Downloads" / "training_composition_rules_import.csv"
-DEFAULT_POOL = Path.home() / "Downloads" / "exercise_builder_pool_import_v8.csv"
-DEFAULT_EQUIPMENT = Path.home() / "Downloads" / "exercise_builder_equipment_import_v8.csv"
+# Пути по умолчанию — корень проекта (положите CSV туда же, где app/ и scripts/)
+DEFAULT_RULES = PROJECT_ROOT / "training_composition_rules_import.csv"
+DEFAULT_POOL = PROJECT_ROOT / "exercise_builder_pool_import_v8.csv"
+DEFAULT_EQUIPMENT = PROJECT_ROOT / "exercise_builder_equipment_import_v8.csv"
 
 
 async def main():
