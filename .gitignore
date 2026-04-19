@@ -27,6 +27,9 @@ uploads/
 .env
 .env.*
 
+# Local app settings (copy from app/config.example.py)
+app/config.py
+
 # Firebase credentials
 firebase-credentials.json
 
