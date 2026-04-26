@@ -125,10 +125,12 @@ def _get_week_weight(pool_item, week_index: int) -> float:
 
 
 _DIFF_LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+_DIFF_ANY = "any"
 _DIFF_ALIASES = {
     "beginner": "beginner", "easy": "beginner", "начинающий": "beginner", "1": "beginner",
     "intermediate": "intermediate", "medium": "intermediate", "средний": "intermediate", "2": "intermediate",
     "advanced": "advanced", "hard": "advanced", "продвинутый": "advanced", "3": "advanced",
+    "any": "any", "all": "any", "any_level": "any", "любой": "any",
 }
 
 
@@ -154,6 +156,26 @@ def _difficulty_fallback_order(plan_diff: str) -> List[str]:
     order = [base, base - 1, base - 2, base + 1, base + 2]
     reverse = {v: k for k, v in _DIFF_LEVEL_ORDER.items()}
     return [reverse[i] for i in order if i in reverse]
+
+
+def _difficulty_matches(
+    item_diff_raw: Optional[str],
+    target_diff: Optional[str],
+    *,
+    include_any: bool = False,
+) -> bool:
+    """
+    Совпадение уровня сложности для отбора:
+    - если target_diff пустой -> пропускаем любой уровень;
+    - обычный режим: item == target;
+    - режим include_any: item == target ИЛИ item == any.
+    """
+    if not target_diff:
+        return True
+    item_diff = _normalize_difficulty(item_diff_raw or "")
+    if item_diff == target_diff:
+        return True
+    return include_any and item_diff == _DIFF_ANY
 
 
 def pool_item_can_use_training_type(p, type_lower: str) -> bool:
@@ -534,6 +556,7 @@ async def suggest_pool_replacements_for_slot(
     scored: List[Tuple] = []
     seen_pool_ids = set()
 
+    include_any = normalize_replacement_action(action) == "replace"
     for step_i, diff in enumerate(diff_steps):
         tier = [
             p
@@ -542,7 +565,7 @@ async def suggest_pool_replacements_for_slot(
             and getattr(p, "exercise_id", None)
             and getattr(p, "exercise_id") not in exclude_exercise_reference_ids
             and role_ok_pool_item(p, role, type_lower)
-            and (not diff or _normalize_difficulty(getattr(p, "difficulty_level", "") or "") == diff)
+            and _difficulty_matches(getattr(p, "difficulty_level", ""), diff, include_any=include_any)
         ]
         for p in tier:
             sc = _score_candidate(
@@ -609,6 +632,7 @@ async def suggest_anchor_replacements(
     if not diff_steps:
         return []
 
+    include_any = normalize_replacement_action(action) == "replace"
     out: List[Any] = []
     seen = set()
     for diff in diff_steps:
@@ -625,7 +649,7 @@ async def suggest_anchor_replacements(
                 continue
             if getattr(c, "exercise_id", None) in exclude_exercise_reference_ids:
                 continue
-            if diff and _normalize_difficulty(getattr(c, "difficulty_level", "") or "") != diff:
+            if not _difficulty_matches(getattr(c, "difficulty_level", ""), diff, include_any=include_any):
                 continue
             if not _pool_item_equipment_ok(c.id, equipment_map, allowed, gym_mode=gym_mode):
                 continue
@@ -714,7 +738,7 @@ async def build_training_exercises(
                     for c in candidates:
                         if c.id in used_pool_ids or c.id in used_ids:
                             continue
-                        if diff and _normalize_difficulty(getattr(c, "difficulty_level", "") or "") != diff:
+                        if not _difficulty_matches(getattr(c, "difficulty_level", ""), diff, include_any=True):
                             continue
                         if not _pool_item_equipment_ok(c.id, equipment_map, allowed, gym_mode=gym_mode):
                             continue
@@ -763,7 +787,7 @@ async def build_training_exercises(
                     p for p in base_pool_items
                     if p.id not in used_pool_ids
                     and role_ok_pool_item(p, role, type_lower)
-                    and (not diff or _normalize_difficulty(getattr(p, "difficulty_level", "") or "") == diff)
+                    and _difficulty_matches(getattr(p, "difficulty_level", ""), diff, include_any=True)
                 ]
                 if tier:
                     candidates = tier
