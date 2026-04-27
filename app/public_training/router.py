@@ -24,6 +24,8 @@ from app.user_training.dao import UserTrainingDAO
 from app.user_training.models import TrainingStatus
 from app.users.dependencies import get_current_user_user, get_optional_current_user_user
 from app.users.models import User
+from app.telegram_service import telegram_service
+from app.logger import logger
 
 
 router = APIRouter(prefix="/public-training", tags=["public-training"])
@@ -37,6 +39,14 @@ router = APIRouter(prefix="/public-training", tags=["public-training"])
 async def create_anonymous_session() -> SAnonymousSessionCreateResponse:
     """Регистрирует новый anonymous_session_id в БД и возвращает его клиенту."""
     aid = await AnonymousSessionDAO.create_session()
+    try:
+        await telegram_service.send_message(
+            "👤 <b>Создана анонимная сессия</b>\n"
+            f"🆔 anonymous_session_id: <code>{aid}</code>"
+        )
+    except Exception as exc:
+        # Не блокируем API-ответ из-за внешнего уведомления.
+        logger.warning(f"Failed to send telegram notification for anonymous session {aid}: {exc}")
     return SAnonymousSessionCreateResponse(anonymous_session_id=aid)
 
 

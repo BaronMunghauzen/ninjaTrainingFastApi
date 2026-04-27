@@ -42,6 +42,7 @@ from app.exercise_builder_equipment.router import router as router_exercise_buil
 from app.user_program_plan.router import router as router_user_program_plan
 from app.public_training.router import router as router_public_training
 from app.user_selected_trainings.router import router as router_user_selected_trainings
+from app.telegram_bot.router import router as router_telegram_bot
 from app.logger import logger
 from pydantic import EmailStr
 from app.email_service import email_service
@@ -578,6 +579,7 @@ app.include_router(router_exercise_builder_equipment)
 app.include_router(router_user_program_plan)
 app.include_router(router_public_training)
 app.include_router(router_user_selected_trainings)
+app.include_router(router_telegram_bot)
 
 # Подключаем статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")
