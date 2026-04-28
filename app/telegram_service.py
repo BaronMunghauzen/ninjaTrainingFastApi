@@ -14,11 +14,26 @@ class TelegramService:
         self.bot_token: Optional[str] = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
         self.chat_id: Optional[str] = getattr(settings, 'TELEGRAM_CHAT_ID', None)
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else None
+        self.proxy_url = self._build_proxy_url()
         
         if not self.bot_token or not self.chat_id:
             logger.warning("Telegram уведомления отключены: не настроены TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID")
         else:
             logger.info("TelegramService инициализирован успешно")
+            if self.proxy_url:
+                logger.info("Для TelegramService включен HTTP-прокси")
+
+    def _build_proxy_url(self) -> Optional[str]:
+        proxy_host: Optional[str] = getattr(settings, "TELEGRAM_PROXY_HOST", None)
+        proxy_port: Optional[int] = getattr(settings, "TELEGRAM_PROXY_PORT", None)
+        proxy_username: Optional[str] = getattr(settings, "TELEGRAM_PROXY_USERNAME", None)
+        proxy_password: Optional[str] = getattr(settings, "TELEGRAM_PROXY_PASSWORD", None)
+
+        if not proxy_host or not proxy_port:
+            return None
+        if proxy_username and proxy_password:
+            return f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
+        return f"http://{proxy_host}:{proxy_port}"
     
     async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """
@@ -36,7 +51,11 @@ class TelegramService:
             return False
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            client_kwargs = {"timeout": 10.0}
+            if self.proxy_url:
+                client_kwargs["proxy"] = self.proxy_url
+
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.post(
                     f"{self.api_url}/sendMessage",
                     json={

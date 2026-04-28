@@ -37,6 +37,10 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
+    TELEGRAM_PROXY_HOST: Optional[str] = None
+    TELEGRAM_PROXY_PORT: Optional[int] = None
+    TELEGRAM_PROXY_USERNAME: Optional[str] = None
+    TELEGRAM_PROXY_PASSWORD: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"),

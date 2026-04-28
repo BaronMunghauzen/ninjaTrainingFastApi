@@ -51,11 +51,18 @@
 # Настройки Telegram для уведомлений
 TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 TELEGRAM_CHAT_ID=123456789
+
+# HTTP-прокси для Telegram (если прямой доступ недоступен)
+TELEGRAM_PROXY_HOST=170.83.233.92
+TELEGRAM_PROXY_PORT=8000
+TELEGRAM_PROXY_USERNAME=DcNVAT
+TELEGRAM_PROXY_PASSWORD=32DeAo
 ```
 
 **Где:**
 - `TELEGRAM_BOT_TOKEN` - токен бота от BotFather
 - `TELEGRAM_CHAT_ID` - ID чата, куда отправлять уведомления (ваш личный ID, ID группы или канала)
+- `TELEGRAM_PROXY_*` - настройки HTTP-прокси для запросов к Telegram API
 
 ### Шаг 4: Перезапустите сервер
 
