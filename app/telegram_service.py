@@ -49,11 +49,45 @@ class TelegramService:
         if not self.bot_token or not self.chat_id:
             logger.debug("Telegram уведомления отключены, пропускаем отправку")
             return False
-        
+
+        if self.proxy_url:
+            sent_via_proxy = await self._send_message_request(
+                text=text,
+                parse_mode=parse_mode,
+                proxy_url=self.proxy_url,
+                transport_label="через прокси",
+            )
+            if sent_via_proxy:
+                return True
+
+            logger.warning(
+                "Отправка Telegram через прокси не удалась, пробуем прямое подключение"
+            )
+            return await self._send_message_request(
+                text=text,
+                parse_mode=parse_mode,
+                proxy_url=None,
+                transport_label="напрямую",
+            )
+
+        return await self._send_message_request(
+            text=text,
+            parse_mode=parse_mode,
+            proxy_url=None,
+            transport_label="напрямую",
+        )
+
+    async def _send_message_request(
+        self,
+        text: str,
+        parse_mode: str,
+        proxy_url: Optional[str],
+        transport_label: str,
+    ) -> bool:
         try:
             client_kwargs = {"timeout": 10.0}
-            if self.proxy_url:
-                client_kwargs["proxy"] = self.proxy_url
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
 
             async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.post(
@@ -61,24 +95,35 @@ class TelegramService:
                     json={
                         "chat_id": self.chat_id,
                         "text": text,
-                        "parse_mode": parse_mode
-                    }
+                        "parse_mode": parse_mode,
+                    },
                 )
                 response.raise_for_status()
                 result = response.json()
-                
+
                 if result.get("ok"):
-                    logger.info("Telegram сообщение отправлено успешно")
+                    logger.info(f"Telegram сообщение отправлено успешно ({transport_label})")
                     return True
-                else:
-                    logger.error(f"Ошибка отправки Telegram сообщения: {result.get('description')}")
-                    return False
-                    
+
+                logger.error(
+                    "Ошибка Telegram API (%s): %s",
+                    transport_label,
+                    result.get("description"),
+                )
+                return False
         except httpx.HTTPError as e:
-            logger.error(f"Ошибка HTTP при отправке Telegram сообщения: {e}")
+            logger.exception(
+                "Ошибка HTTP при отправке Telegram сообщения (%s): %r",
+                transport_label,
+                e,
+            )
             return False
         except Exception as e:
-            logger.error(f"Неожиданная ошибка при отправке Telegram сообщения: {e}")
+            logger.exception(
+                "Неожиданная ошибка при отправке Telegram сообщения (%s): %r",
+                transport_label,
+                e,
+            )
             return False
     
     async def notify_new_registration(
