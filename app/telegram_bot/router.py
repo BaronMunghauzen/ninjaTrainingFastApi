@@ -1,3 +1,5 @@
+import asyncio
+import json
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -171,29 +173,22 @@ def _is_authorized_chat(chat_id: Optional[int]) -> bool:
     return str(chat_id) == str(allowed_chat_id)
 
 
-@router.post("/webhook")
-async def telegram_webhook(request: Request):
+async def process_telegram_stats_update(update: dict) -> None:
     """
-    Telegram bot webhook for chat commands.
-    Supported command examples:
-      - "статистика"
-      - "статистика 2026-04"
-      - "статистика 2026-01..2026-04"
-      - "статистика 2026-04-01 2026-04-27"
-      - "статистика с 2026-04-01 по 2026-04-27"
+    Обработка одного update от Telegram (команда статистики).
+    Вызывается из webhook (в фоне) или из long polling.
     """
-    update = await request.json()
     chat_id, text, user_id = _extract_message_meta(update)
     if chat_id is None or not text:
-        return {"ok": True}
+        return
 
     if not _is_authorized_chat(chat_id):
         logger.warning(f"Unauthorized telegram chat_id={chat_id}, user_id={user_id}")
-        return {"ok": True}
+        return
 
     text_l = text.strip().lower()
     if "статист" not in text_l and "stats" not in text_l and "stat" not in text_l:
-        return {"ok": True}
+        return
 
     try:
         start_date, end_date, period_label = _parse_period_from_text(text)
@@ -259,4 +254,49 @@ async def telegram_webhook(request: Request):
             "• статистика 2026-04-01 2026-04-27"
         )
 
+
+@router.post("/webhook")
+async def telegram_webhook(request: Request):
+    """
+    Telegram bot webhook for chat commands.
+    Supported command examples:
+      - "статистика"
+      - "статистика 2026-04"
+      - "статистика 2026-01..2026-04"
+      - "статистика 2026-04-01 2026-04-27"
+      - "статистика с 2026-04-01 по 2026-04-27"
+    """
+    raw = await request.body()
+    if not raw or not raw.strip():
+        logger.warning(
+            "Telegram webhook: пустое тело запроса (host=%s, client=%s)",
+            request.headers.get("host"),
+            request.client.host if request.client else None,
+        )
+        return {"ok": True}
+    try:
+        update = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "Telegram webhook: невалидный JSON (host=%s, client=%s): %s",
+            request.headers.get("host"),
+            request.client.host if request.client else None,
+            exc,
+        )
+        return {"ok": True}
+
+    chat_id, text, user_id = _extract_message_meta(update)
+    if chat_id is None or not text:
+        return {"ok": True}
+
+    if not _is_authorized_chat(chat_id):
+        logger.warning(f"Unauthorized telegram chat_id={chat_id}, user_id={user_id}")
+        return {"ok": True}
+
+    text_l = text.strip().lower()
+    if "статист" not in text_l and "stats" not in text_l and "stat" not in text_l:
+        return {"ok": True}
+
+    # Сразу отвечаем Telegram, чтобы не ждать БД и sendMessage (таймауты nginx / повторы webhook).
+    asyncio.create_task(process_telegram_stats_update(update))
     return {"ok": True}

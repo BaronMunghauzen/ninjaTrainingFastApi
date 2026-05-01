@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     TELEGRAM_PROXY_PORT: Optional[int] = None
     TELEGRAM_PROXY_USERNAME: Optional[str] = None
     TELEGRAM_PROXY_PASSWORD: Optional[str] = None
+    # webhook — Telegram шлёт POST на /telegram/webhook; polling — исходящий getUpdates (без входящего webhook)
+    TELEGRAM_UPDATES_MODE: str = "webhook"
 
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"),

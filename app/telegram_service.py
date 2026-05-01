@@ -1,5 +1,6 @@
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
+
 import httpx
 from app.config import settings
 
@@ -34,6 +35,65 @@ class TelegramService:
         if proxy_username and proxy_password:
             return f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
         return f"http://{proxy_host}:{proxy_port}"
+
+    async def call_raw_api(
+        self,
+        api_method: str,
+        *,
+        get_params: Optional[Dict[str, Any]] = None,
+        post_json: Optional[Dict[str, Any]] = None,
+        timeout: float = 60.0,
+    ) -> Optional[dict]:
+        """
+        Вызов Telegram Bot API (getUpdates, deleteWebhook и т.д.).
+        Та же схема прокси, что и у send_message: сначала прокси, при сбое — напрямую.
+        """
+        if not self.bot_token or not self.api_url:
+            logger.debug("Telegram API: нет токена, пропускаем %s", api_method)
+            return None
+
+        async def _attempt(proxy_url: Optional[str], label: str) -> Optional[dict]:
+            url = f"{self.api_url}/{api_method}"
+            try:
+                client_kwargs: Dict[str, Any] = {"timeout": timeout}
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    if get_params is not None:
+                        response = await client.get(url, params=get_params)
+                    elif post_json is not None:
+                        response = await client.post(url, json=post_json)
+                    else:
+                        response = await client.post(url)
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.HTTPError as e:
+                logger.exception(
+                    "Ошибка HTTP Telegram API %s (%s): %r",
+                    api_method,
+                    label,
+                    e,
+                )
+                return None
+            except Exception as e:
+                logger.exception(
+                    "Ошибка Telegram API %s (%s): %r",
+                    api_method,
+                    label,
+                    e,
+                )
+                return None
+
+        if self.proxy_url:
+            data = await _attempt(self.proxy_url, "через прокси")
+            if data is not None:
+                return data
+            logger.warning(
+                "Telegram API %s через прокси не удался, пробуем напрямую",
+                api_method,
+            )
+            return await _attempt(None, "напрямую")
+        return await _attempt(None, "напрямую")
     
     async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """

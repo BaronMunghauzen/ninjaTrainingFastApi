@@ -4,6 +4,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from contextlib import asynccontextmanager
+import asyncio
 
 # Import models before routers to ensure SQLAlchemy relationships are properly initialized
 # Import UserFavoriteExercise BEFORE ExerciseReference to ensure it's registered first
@@ -43,11 +44,12 @@ from app.user_program_plan.router import router as router_user_program_plan
 from app.public_training.router import router as router_public_training
 from app.user_selected_trainings.router import router as router_user_selected_trainings
 from app.telegram_bot.router import router as router_telegram_bot
+from app.config import settings
 from app.logger import logger
 from pydantic import EmailStr
 from app.email_service import email_service
 import tracemalloc
-from typing import Dict, List
+from typing import Dict, List, Optional
 from collections import deque
 import time
 
@@ -97,10 +99,27 @@ async def lifespan(app: FastAPI):
             
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации сервисов: {e}")
+
+    poller_stop: Optional[asyncio.Event] = None
+    poller_task: Optional[asyncio.Task] = None
+    if str(settings.TELEGRAM_UPDATES_MODE).strip().lower() == "polling":
+        from app.telegram_bot.poller import run_telegram_poller
+
+        poller_stop = asyncio.Event()
+        poller_task = asyncio.create_task(run_telegram_poller(poller_stop))
+        logger.info("Telegram updates: режим long polling (getUpdates)")
     
     yield
     
     # Остановка приложения
+    if poller_task is not None and poller_stop is not None:
+        poller_stop.set()
+        poller_task.cancel()
+        try:
+            await poller_task
+        except asyncio.CancelledError:
+            pass
+
     from app.background_tasks import stop_scheduler
     stop_scheduler()
     
