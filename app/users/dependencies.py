@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import Request, HTTPException, status, Depends, Header
+from fastapi import Request, HTTPException, status, Depends
 from jose import jwt, JWTError
 from datetime import datetime, timezone
 from app.config import get_auth_data
@@ -73,21 +73,32 @@ async def get_current_admin_user(current_user: User = Depends(get_current_user))
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Недостаточно прав!')
 
 
-async def get_current_user_or_valid_anonymous_session(
-    request: Request,
-    anonymous_session_id: Optional[str] = Header(default=None, alias="anonymous_session_id"),
-):
+def _anonymous_session_id_from_request(request: Request) -> Optional[str]:
+    """
+    Читает ID анонимной сессии из заголовка.
+
+    Поддерживаются:
+    - anonymous_session_id — как раньше;
+    - x-anonymous-session-id — тот же смысл; нужен за типичным nginx: по умолчанию он не
+      передаёт в upstream заголовки с подчёркиванием в имени (anonymous_session_id «теряется»).
+    """
+    h = request.headers
+    return h.get("anonymous_session_id") or h.get("x-anonymous-session-id")
+
+
+async def get_current_user_or_valid_anonymous_session(request: Request):
     """
     Доступ:
     1) обычный пользователь по токену (cookie users_access_token), либо
-    2) анонимный доступ по заголовку anonymous_session_id, если сессия есть в таблице anonymous_session
-       (actual=true) или есть связанные записи в trainings.
+    2) анонимный доступ по заголовку anonymous_session_id или x-anonymous-session-id,
+       если сессия есть в таблице anonymous_session (actual=true) или есть связанные записи в trainings.
     """
     token = request.cookies.get("users_access_token")
     if token:
         # Если токен передан — работаем по обычной авторизации и не делаем fallback.
         return await get_current_user_user(await get_current_user(token))
 
+    anonymous_session_id = _anonymous_session_id_from_request(request)
     if not anonymous_session_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not found")
 

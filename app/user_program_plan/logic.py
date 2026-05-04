@@ -77,6 +77,25 @@ async def _get_last_heavy_for_plan(plan_id: int):
         return row
 
 
+async def _had_heavy_passed_on_calendar_day(plan_id: int, day: date) -> bool:
+    """Была ли завершённая (PASSED) heavy_* тренировка по плану с completed_at в этот календарный день."""
+    start = datetime.combine(day, datetime.min.time())
+    end = start + timedelta(days=1)
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(func.count(UserTraining.id))
+            .where(
+                UserTraining.user_program_plan_id == plan_id,
+                UserTraining.status == "PASSED",
+                UserTraining.completed_at.isnot(None),
+                UserTraining.training_type.like("heavy_%"),
+                UserTraining.completed_at >= start,
+                UserTraining.completed_at < end,
+            )
+        )
+        return (result.scalar() or 0) > 0
+
+
 def _to_iso(dt):
     if dt is None:
         return None
@@ -189,6 +208,11 @@ async def get_training_group_for_date(
 ) -> dict:
     """
     Определение группы тренировки на дату: heavy или light.
+
+    Алгоритм: light только если в предыдущий календарный день (относительно даты из
+    training_datetime_to_plan) была завершённая heavy_* тренировка по плану; иначе heavy.
+    Первый запуск без завершённых тренировок по плану — heavy.
+
     Если передан preferred_group (heavy|light) — итоговая группа всегда равна ему
     (алгоритмическая рекомендация сохраняется в reason через префикс override).
 
@@ -230,49 +254,18 @@ async def get_training_group_for_date(
             **_preference_meta(preferred_group, applied=applied, rejected_reason=None),
         }
 
-    last = last_trainings[0]
-    completed_at = last.completed_at
-    if not completed_at:
-        group, reason, applied = _finalize_group_with_preference(
-            "heavy", "no_previous_program_trainings", pref
-        )
-        return {
-            "group": group,
-            "reason": reason,
-            "training_datetime_to_plan": _to_iso(training_datetime_to_plan),
-            "start_date": start_date.isoformat() if start_date else None,
-            "completed_heavy_training_count": completed_heavy,
-            "current_week_index": current_week,
-            **_preference_meta(preferred_group, applied=applied, rejected_reason=None),
-        }
+    planning_date = training_datetime_to_plan.date()
+    prev_calendar_day = planning_date - timedelta(days=1)
+    had_heavy_yesterday = await _had_heavy_passed_on_calendar_day(plan.id, prev_calendar_day)
 
-    delta_seconds = (training_datetime_to_plan - completed_at).total_seconds()
-    delta_hours = delta_seconds / 3600
-    training_type_val = (last.training_type or "").strip().lower()
-
-    # Шаг 1: базовая группа (алгоритм)
-    if delta_hours > 72:
-        group = "heavy"
-        reason = "long_break_more_than_72h"
-    elif training_type_val.startswith("light_"):
-        group = "heavy"
-        reason = "last_training_was_light"
-    elif delta_hours < 36:
+    if had_heavy_yesterday:
         group = "light"
-        reason = "last_heavy_less_than_36h"
-    elif 36 <= delta_hours <= 72:
-        group = "heavy"
-        reason = "last_heavy_between_36h_72h"
+        reason = "heavy_completed_previous_calendar_day"
     else:
         group = "heavy"
-        reason = "last_heavy_between_36h_72h"
+        reason = "no_heavy_previous_calendar_day"
 
-    # Шаг 2: коррекция — квота heavy (3 в неделю): если выполнена — сегодня light
-    if group == "heavy" and completed_heavy > 0 and (completed_heavy % 3) == 0:
-        group = "light"
-        reason = "heavy_quota_completed_for_week"
-
-    # Шаг 3: предпочтение пользователя — всегда даём запрошенную группу
+    # Предпочтение пользователя — всегда даём запрошенную группу
     group, reason, preference_applied = _finalize_group_with_preference(group, reason, pref)
 
     return {
